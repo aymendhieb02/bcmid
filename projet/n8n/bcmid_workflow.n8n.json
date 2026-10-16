@@ -1,0 +1,1083 @@
+{
+  "id": "bcmidLocalToolsDemo",
+  "name": "BCMID local tools — visible orchestration",
+  "active": false,
+  "nodes": [
+    {
+      "id": "caeeb052-7875-5681-ad9f-84f30b8b779f",
+      "name": "Ask webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bcmid-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "bcmid-agent-local"
+    },
+    {
+      "id": "6df0fd04-d1f7-5343-8a37-db218681e455",
+      "name": "Normalize request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst body = item.json.body ?? item.json;\nconst state = {request_id: `bcmid-${Date.now()}-${Math.random().toString(36).slice(2)}`, question:'',query:'',patient_id:null,filters:{split:'train'},intent:'out_of_scope_or_insufficient',tools:[],needs_generation:false,retry_count:0,status:'pending',reports:[],images:[],metadata:[],registry:[],generation_evidence:[],candidate_answer:'',answer:null,citations:[],checker:{decision:'not_checked',problems:[],checked_passage_ids:[]},tools_called:[],trace:['normalize'],limitations:['Research similar-case retrieval; no diagnosis of the query patient. Patient-level image/report links are not verified for the exact examination. Similarity is not confidence.'],errors:[]};\nlet image_base64=''; let requested_intent=null; let retrieve_only=false;\ntry {\n  if (!body || typeof body !== 'object' || Array.isArray(body)) throw Error('Request must be an object');\n  const allowed=['question','patient_id','intent','filters','filters_json','retrieve_only','image_base64'];\n  if(Object.keys(body).some(k=>!allowed.includes(k))) throw Error('Unknown request field');\n  if(body.question!=null && typeof body.question!=='string') throw Error('question must be text');\n  state.question=(body.question??'').trim(); state.query=state.question;\n  if(state.question.length>2000) throw Error('question exceeds 2000 characters');\n  if(body.patient_id!=null && typeof body.patient_id!=='string') throw Error('patient_id must be text');\n  state.patient_id=(body.patient_id??'').trim()||null;\n  if(state.patient_id && !/^[A-Za-z0-9_-]{1,128}$/.test(state.patient_id)) throw Error('Invalid patient_id');\n  let f=body.filters ?? body.filters_json ?? {};\n  if(typeof f==='string') f=JSON.parse(f);\n  if(!f || typeof f!=='object' || Array.isArray(f)) throw Error('filters must be an object');\n  const keys=['patient_id','image_id','modality','split','has_report','has_structured_report','birads'];\n  if(Object.keys(f).some(k=>!keys.includes(k))) throw Error('Unknown filter');\n  if(f.split!=null && f.split!=='train') throw Error('Serving tools only expose the train split');\n  if(f.modality!=null && !['Mammogram','Ultrasound'].includes(f.modality)) throw Error('Invalid modality');\n  for(const k of ['has_report','has_structured_report']) if(f[k]!=null && typeof f[k]!=='boolean') throw Error(`${k} must be boolean`);\n  for(const k of ['patient_id','image_id']) if(f[k]!=null && (typeof f[k]!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(f[k]))) throw Error(`Invalid ${k}`);\n  if(f.birads!=null && (typeof f.birads!=='string'||!/^[0-6][a-cA-C]?$/.test(f.birads))) throw Error('Invalid BI-RADS filter');\n  state.filters={...f,split:'train'};\n  requested_intent=body.intent||null;\n  if(requested_intent && typeof requested_intent!=='string') throw Error('intent must be text');\n  if(body.retrieve_only!=null && ![true,false,'true','false'].includes(body.retrieve_only)) throw Error('Invalid retrieve_only');\n  retrieve_only=body.retrieve_only===true||body.retrieve_only==='true';\n  const binaries=Object.keys(item.binary??{});\n  if(binaries.length>1) throw Error('Upload one image');\n  if(binaries.length) {\n    const buffer=await this.helpers.getBinaryDataBuffer(0,binaries[0]);\n    if(buffer.length>20971520) throw Error('Image exceeds 20 MiB');\n    image_base64=buffer.toString('base64');\n  } else {\n    image_base64=body.image_base64??'';\n    if(typeof image_base64!=='string'||image_base64.length>27962028|| (image_base64 && !/^[A-Za-z0-9+/]*={0,2}$/.test(image_base64))) throw Error('Invalid image_base64');\n  }\n} catch(e) {state.status='invalid_request';state.errors=[e.message];image_base64='';}\nreturn [{json:{state,image_base64,requested_intent,retrieve_only,has_image:!!image_base64}}];\n"
+      }
+    },
+    {
+      "id": "8e9c4d11-648c-5852-bd6a-4580f5d84dbc",
+      "name": "Classify intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const x=$input.first().json, s=x.state;\nconst q=s.question.toLowerCase();\nconst diagnosis=/\\b(diagnos\\w*|do i have|do they have|does (this|the) (image|patient).*cancer|is (this|it).*cancer|is my.*malignant|am i.*cancer|assess.*bi.?rads|assign.*bi.?rads)\\b/i.test(q);\nif(s.status==='invalid_request'||diagnosis) {s.intent='out_of_scope_or_insufficient';if(diagnosis)s.limitations.push('Diagnostic requests and BI-RADS assignment are outside this retrieval demo.');}\nelse if(x.requested_intent) s.intent=x.requested_intent;\nelse if(Object.keys(s.filters).some(k=>k!=='split' && (k!=='modality'||!x.has_image)) || /\\b(metadata|patient id|patient identifier|lookup patient|find patient)\\b/.test(q)) s.intent='metadata_lookup';\nelse if(x.has_image && (!q || /^(find |show |search |retrieve )?(similar|matching) (images|cases)/.test(q))) s.intent='image_search';\nelse if(x.has_image && /report|follow.?up|birads|bi-rads|finding|opinion/.test(q)) s.intent='image_and_report_question';\nelse if(!x.has_image && /report|follow.?up|birads|bi-rads|finding|opinion/.test(q)) s.intent='report_question';\nelse s.intent='out_of_scope_or_insufficient';\ns.tools=({report_question:['report_search'],image_search:['image_search'],image_and_report_question:['report_search','image_search'],metadata_lookup:['metadata_lookup'],out_of_scope_or_insufficient:[]})[s.intent]??[];\ns.needs_generation=!x.retrieve_only && ['report_question','image_and_report_question'].includes(s.intent) && /follow.?up|bi.?rads/i.test(q);\nif(s.intent==='metadata_lookup' && !s.filters.patient_id && s.patient_id) s.filters.patient_id=s.patient_id;\ns.trace.push('deterministic_classification');\nreturn [{json:x}];\n"
+      }
+    },
+    {
+      "id": "2ce2641e-0811-5289-a712-ea032b20b693",
+      "name": "Validate allowlisted plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const x=$input.first().json,s=x.state;\nconst allowed={report_question:['report_search'],image_search:['image_search'],image_and_report_question:['report_search','image_search'],metadata_lookup:['metadata_lookup'],out_of_scope_or_insufficient:[]};\ntry {\n if(!(s.intent in allowed)||JSON.stringify(s.tools)!==JSON.stringify(allowed[s.intent])) throw Error('Unknown intent or tool plan');\n if(!Number.isInteger(s.retry_count)||s.retry_count<0||s.retry_count>1) throw Error('Invalid retry count');\n if(s.tools.includes('image_search')&&!x.has_image) throw Error('Image intent requires an upload');\n if(s.tools.includes('report_search')&&!s.question) throw Error('Report intent requires a question');\n if(s.intent!=='metadata_lookup' && Object.keys(s.filters).some(k=>!['split','modality'].includes(k))) throw Error('Structured metadata filters require metadata_lookup');\n if(s.intent==='report_question' && s.filters.modality) throw Error('Modality filtering applies to images or metadata');\n} catch(e) {s.status='invalid_request';s.errors.push(e.message);s.intent='out_of_scope_or_insufficient';s.tools=[];s.needs_generation=false;}\ns.trace.push('allowlist_plan_validation');\nreturn [{json:x}];\n"
+      }
+    },
+    {
+      "id": "ce2e2eb8-3a38-5563-8b11-7318eadc5ca1",
+      "name": "Route intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 5,
+        "output": "={{ ['report_question','image_search','image_and_report_question','metadata_lookup','out_of_scope_or_insufficient'].indexOf($json.state.intent) }}"
+      }
+    },
+    {
+      "id": "6326e21d-993e-5ac0-80dc-84337e62db2c",
+      "name": "Report retrieval",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        -240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/report-search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,top_k:5}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a5c2a5ac-46a7-5cc1-9f5e-ad8ae66170aa",
+      "name": "Image retrieval ViT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/image-search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,image_base64:$json.image_base64,top_k:5}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "11a3b4f3-0d0c-5d22-ae8b-82c0d195de32",
+      "name": "Start report job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/report-jobs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,top_k:5}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c2fbb272-6658-52a3-be8f-eb2b2f55e3e1",
+      "name": "Start image job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        460
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/image-jobs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,image_base64:$json.image_base64,top_k:5}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "efbe42ee-0d54-5026-93d4-f948272b29fc",
+      "name": "Merge parallel receipts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1500,
+        340
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "e51a5959-49ef-52c2-b30a-4ddc94512ab7",
+      "name": "Validate parallel receipts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        340
+      ],
+      "parameters": {
+        "jsCode": "const items=$input.all().map(x=>x.json);\nif(items.length!==2 || new Set(items.map(x=>x.kind)).size!==2 || items.some(x=>!['report','image'].includes(x.kind)||!x.job_id||x.state.request_id!==items[0].state.request_id)) throw Error('Invalid paired retrieval jobs');\nreturn [{json:{state:items.find(x=>x.kind==='report').state,jobs:items.map(x=>x.job_id)}}];\n"
+      }
+    },
+    {
+      "id": "cc2845ea-b53e-57b0-b4d5-81dab78acc42",
+      "name": "Collect parallel retrievals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        340
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/jobs/collect",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,jobs:$json.jobs}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "f73b4052-10be-55a1-982e-f38cad01eb71",
+      "name": "Metadata lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        720
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/metadata",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "14ba680b-0919-5098-bc6e-44b4283efc2c",
+      "name": "Assemble evidence registry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2380,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const s=$input.first().json.state;\ns.registry=[];\nconst seen=new Set();\nfor(const [kind,rows] of [['report',s.reports],['image',s.images]]) for(const row of rows) {\n const id=kind==='report'?row.passage_id:row.image_id;\n if(!id||!row.patient_id||row.split!=='train'||(s.patient_id&&row.patient_id===s.patient_id)||seen.has(kind+id)) {s.errors.push('Invalid evidence identity or patient/split leakage');continue;}\n seen.add(kind+id);\n s.registry.push({kind,id,patient_id:row.patient_id,source:kind==='report'?row.source:row.source_image_reference,split:row.split,modality:row.modality??null,rank:row.rank,similarity:row.similarity??null});\n}\ns.trace.push('assemble_evidence_registry');\nreturn [{json:{state:s}}];\n"
+      }
+    },
+    {
+      "id": "3038a691-c168-5200-aefa-2bb8ecc06121",
+      "name": "Check evidence sufficiency",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2620,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/evidence-check",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,stage:'evidence'}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "f94996e7-5b46-5fe1-acb8-39ec8a5945d1",
+      "name": "Evidence sufficient",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "Evidence sufficient",
+              "leftValue": "={{ $json.state.checker.decision === 'sufficient' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5662e9a7-70dc-5594-ba3a-e9fc9dfad625",
+      "name": "Generation needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3100,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "Generation needed",
+              "leftValue": "={{ $json.state.needs_generation === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e554d3f9-148b-5bb3-85a3-7393b7a92646",
+      "name": "Freeze generation evidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const s=$input.first().json.state;\ns.generation_evidence=s.reports.slice(0,5);\ns.candidate_answer='';s.answer=null;s.citations=[];\ns.trace.push('freeze_exact_generation_evidence');\nreturn [{json:{state:s}}];\n"
+      }
+    },
+    {
+      "id": "48226b26-95e6-50d8-89b9-e1dc28b65f1d",
+      "name": "Generate local quotations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3640,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "496c0f85-16c1-50e1-9a29-77baa78f0f36",
+      "name": "Check exact answer evidence",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3880,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/evidence-check",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,stage:'answer'}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "0a0e188d-e642-594f-a6dc-c3c243f69552",
+      "name": "Answer accepted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "Answer accepted",
+              "leftValue": "={{ $json.state.checker.decision === 'accept' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f2ae05c3-4b17-597c-8166-20fd25beaabd",
+      "name": "One retry allowed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3100,
+        680
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "One retry allowed",
+              "leftValue": "={{ $json.state.retry_count === 0 && $json.state.tools.includes('report_search') && !$json.state.errors.length && !$json.state.checker.problems.some(p => /mismatch|leakage|duplicate/.test(p)) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "65a969c5-f18d-5a64-98d6-270d7db24e53",
+      "name": "Targeted rewrite retry 1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2820,
+        680
+      ],
+      "parameters": {
+        "jsCode": "const s=$input.first().json.state;\nif(s.retry_count!==0 || !s.tools.includes('report_search') || s.errors.length) throw Error('Retry limit or tool constraint violated');\ns.retry_count=1;\ns.query=(s.question+' OPINION explicit annual follow up close follow up BI-RADS').slice(0,2200);\ns.reports=[];s.registry=[];s.generation_evidence=[];s.candidate_answer='';s.answer=null;s.citations=[];\ns.checker={decision:'not_checked',problems:[],checked_passage_ids:[]};\ns.trace.push('targeted_query_rewrite_retry_1_of_1');\nreturn [{json:{state:s}}];\n"
+      }
+    },
+    {
+      "id": "d66aa0a2-2068-5926-a210-87a7fe4d7795",
+      "name": "Retry report retrieval",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2540,
+        680
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/report-search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$json.state,top_k:8}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a9f3ab80-a59b-575c-aff1-c747cb83df2c",
+      "name": "Tool transport failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4460,
+        680
+      ],
+      "parameters": {
+        "jsCode": "const s=JSON.parse(JSON.stringify($input.first().json.state ?? $('Validate allowlisted plan').first().json.state));\ns.status='tool_error';\ns.errors.push('local_tool_transport_failed');\ns.trace.push('local_tool_transport_failed');\ns.answer=null;s.citations=[];\nreturn [{json:{state:s}}];\n"
+      }
+    },
+    {
+      "id": "e1b146e7-cb6e-5aad-ad06-52fc1f069f81",
+      "name": "Finalize safe response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4460,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const s=$input.first().json.state;\nlet status=s.status;\nif(s.errors.length) status=s.status==='invalid_request'?'invalid_request':'tool_error';\nelse if(s.intent==='out_of_scope_or_insufficient') status='out_of_scope';\nelse if(s.intent==='metadata_lookup') status=s.metadata.length?'ok':'not_found';\nelse if(s.checker.decision==='accept'&&s.answer) status='answered';\nelse if(s.checker.decision==='sufficient'&&!s.needs_generation) status='retrieved';\nelse status='abstained';\nconst accepted=status==='answered';\nreturn [{json:{request_id:s.request_id,intent:s.intent,status,query_patient_id:s.patient_id,answer:accepted?s.answer:null,citations:accepted?s.citations:[],sources:s.registry,report_passages:s.reports,similar_images:s.images,metadata:s.metadata,tools_called:s.tools_called,retry_count:s.retry_count,checker:s.checker,generation_passage_ids:s.generation_evidence.map(r=>r.passage_id),limitations:[...new Set(s.limitations)],errors:s.errors,trace:s.trace}}];\n"
+      }
+    },
+    {
+      "id": "e907a476-9e5f-52aa-9fc9-c70b910a014f",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        4700,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "d0db22ff-8ace-51e8-96aa-f04c0dc9dcc8",
+      "name": "Administration note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        550
+      ],
+      "parameters": {
+        "content": "## Reading this workflow\nFollow 01 → 05 from left to right. Only one intent lane is selected. Combined requests dispatch both retrieval jobs and meet at Merge.\n\n**Lower lane:** one report retry maximum; the counter is visible. Metadata and unsupported requests go straight to the final response. HTTP failures converge on the lower-right handler.\n\n**Saved artifacts:** E5 / Chroma reports and ViT images. ViT is not Kaggle CLIP. Ingestion is an offline administrative notebook task, never part of Ask.\n\n**Local endpoints:** n8n :5685 · Python tools :8000 · Streamlit :8501.",
+        "height": 360,
+        "width": 1020,
+        "color": 7
+      }
+    },
+    {
+      "id": "e1a44e97-7e33-5d23-b085-e85e13a96c11",
+      "name": "01 · Receive and route",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -430
+      ],
+      "parameters": {
+        "content": "## 01 · Receive and route\nNormalize input → classify intent → validate tools.\nSwitch outputs: reports / images / combined / metadata / unsupported.",
+        "width": 1120,
+        "height": 760,
+        "color": 5
+      }
+    },
+    {
+      "id": "3b0e6445-f98a-5f87-826e-ebe1dc612ab0",
+      "name": "02 · Retrieve the right evidence",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -470
+      ],
+      "parameters": {
+        "content": "## 02 · Retrieve the right evidence\nTop lanes: reports or images. Middle: both tools → Merge.\nBottom: metadata only. These paths never rebuild indexes.",
+        "width": 1100,
+        "height": 1410,
+        "color": 4
+      }
+    },
+    {
+      "id": "4bdae24e-f15a-574e-8348-0eed2215ec91",
+      "name": "03 · Validate evidence",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2280,
+        -430
+      ],
+      "parameters": {
+        "content": "## 03 · Validate evidence\nKeep source identities, check sufficiency, then decide whether a generated answer is needed.\nTrue continues right; insufficient evidence enters the retry lane.",
+        "width": 1000,
+        "height": 760,
+        "color": 3
+      }
+    },
+    {
+      "id": "39740125-d1f6-5b0e-9061-62b748e6ba43",
+      "name": "04 · Generate and check",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3300,
+        -430
+      ],
+      "parameters": {
+        "content": "## 04 · Generate and check\nFreeze exact passages → local Qwen → check source quotations.\nOnly an accepted answer can be released. A failure may use the one retry.",
+        "width": 1000,
+        "height": 760,
+        "color": 6
+      }
+    },
+    {
+      "id": "d1cbbad6-e247-5935-bcc3-8d0aa105ef17",
+      "name": "05 · Respond",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4360,
+        -430
+      ],
+      "parameters": {
+        "content": "## 05 · Respond\nOne consistent response for every path.\nAnswer / retrieval / metadata / abstention / rejection.",
+        "width": 620,
+        "height": 760,
+        "color": 5
+      }
+    },
+    {
+      "id": "d2cef93a-47e9-549a-b356-99e85ac02d5e",
+      "name": "06 · One retry, then stop",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2420,
+        450
+      ],
+      "parameters": {
+        "content": "## 06 · One retry, then stop\nRead this lane right → left. Counter 0 → 1; rewrite; retrieve reports again.\nThe next failure abstains. Images are retained for combined requests.",
+        "width": 940,
+        "height": 500,
+        "color": 2
+      }
+    },
+    {
+      "id": "6c63b3dc-d685-5401-b4e5-c3460fdd87c2",
+      "name": "07 · Tool unavailable",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4360,
+        450
+      ],
+      "parameters": {
+        "content": "## 07 · Tool unavailable\nTransport errors return safe JSON with no answer.\nThis is an error exit, not another retry loop.",
+        "width": 620,
+        "height": 500,
+        "color": 7
+      }
+    }
+  ],
+  "connections": {
+    "Report retrieval": {
+      "main": [
+        [
+          {
+            "node": "Assemble evidence registry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image retrieval ViT": {
+      "main": [
+        [
+          {
+            "node": "Assemble evidence registry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start report job": {
+      "main": [
+        [
+          {
+            "node": "Merge parallel receipts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start image job": {
+      "main": [
+        [
+          {
+            "node": "Merge parallel receipts",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect parallel retrievals": {
+      "main": [
+        [
+          {
+            "node": "Assemble evidence registry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metadata lookup": {
+      "main": [
+        [
+          {
+            "node": "Finalize safe response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check evidence sufficiency": {
+      "main": [
+        [
+          {
+            "node": "Evidence sufficient",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate local quotations": {
+      "main": [
+        [
+          {
+            "node": "Check exact answer evidence",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check exact answer evidence": {
+      "main": [
+        [
+          {
+            "node": "Answer accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry report retrieval": {
+      "main": [
+        [
+          {
+            "node": "Assemble evidence registry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tool transport failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize request": {
+      "main": [
+        [
+          {
+            "node": "Classify intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify intent": {
+      "main": [
+        [
+          {
+            "node": "Validate allowlisted plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate allowlisted plan": {
+      "main": [
+        [
+          {
+            "node": "Route intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route intent": {
+      "main": [
+        [
+          {
+            "node": "Report retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Image retrieval ViT",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start report job",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Start image job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Metadata lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize safe response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge parallel receipts": {
+      "main": [
+        [
+          {
+            "node": "Validate parallel receipts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate parallel receipts": {
+      "main": [
+        [
+          {
+            "node": "Collect parallel retrievals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble evidence registry": {
+      "main": [
+        [
+          {
+            "node": "Check evidence sufficiency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freeze generation evidence": {
+      "main": [
+        [
+          {
+            "node": "Generate local quotations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Targeted rewrite retry 1": {
+      "main": [
+        [
+          {
+            "node": "Retry report retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize safe response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evidence sufficient": {
+      "main": [
+        [
+          {
+            "node": "Generation needed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "One retry allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generation needed": {
+      "main": [
+        [
+          {
+            "node": "Freeze generation evidence",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize safe response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer accepted": {
+      "main": [
+        [
+          {
+            "node": "Finalize safe response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "One retry allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One retry allowed": {
+      "main": [
+        [
+          {
+            "node": "Targeted rewrite retry 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize safe response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool transport failure": {
+      "main": [
+        [
+          {
+            "node": "Finalize safe response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 600,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "pinData": {}
+}

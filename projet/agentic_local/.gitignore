@@ -1,0 +1,8 @@
+artifacts/
+data/
+tmp/
+__pycache__/
+.pytest_cache/
+.env
+backups/
+.runtime/

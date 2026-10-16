@@ -1,0 +1,27 @@
+# Local credentials and Python environments
+.env
+.venv/
+**/__pycache__/
+**/.pytest_cache/
+
+# Local datasets, reports, images, and packaged data
+projet/bcmid/
+projet/*.zip
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.jfif
+
+# Local model outputs, embeddings, and indexes
+projet/rag/outputs/
+projet/agentic_local/artifacts/
+**/chroma_db/
+**/hf_cache/
+*.npy
+*.parquet
+
+# Runtime state, backups, and run-specific verification outputs
+projet/agentic_local/.runtime/
+projet/agentic_local/backups/
+projet/agentic_local/verification/

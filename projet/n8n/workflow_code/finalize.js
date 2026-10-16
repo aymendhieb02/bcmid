@@ -1,0 +1,10 @@
+const s=$input.first().json.state;
+let status=s.status;
+if(s.errors.length) status=s.status==='invalid_request'?'invalid_request':'tool_error';
+else if(s.intent==='out_of_scope_or_insufficient') status='out_of_scope';
+else if(s.intent==='metadata_lookup') status=s.metadata.length?'ok':'not_found';
+else if(s.checker.decision==='accept'&&s.answer) status='answered';
+else if(s.checker.decision==='sufficient'&&!s.needs_generation) status='retrieved';
+else status='abstained';
+const accepted=status==='answered';
+return [{json:{request_id:s.request_id,intent:s.intent,status,query_patient_id:s.patient_id,answer:accepted?s.answer:null,citations:accepted?s.citations:[],sources:s.registry,report_passages:s.reports,similar_images:s.images,metadata:s.metadata,tools_called:s.tools_called,retry_count:s.retry_count,checker:s.checker,generation_passage_ids:s.generation_evidence.map(r=>r.passage_id),limitations:[...new Set(s.limitations)],errors:s.errors,trace:s.trace}}];
