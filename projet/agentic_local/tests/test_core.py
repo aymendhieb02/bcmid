@@ -60,17 +60,13 @@ class CoreTests(unittest.TestCase):
  def test_generate_empty(self):
   with patch.object(api.httpx,'AsyncClient') as client:result=asyncio.run(api.generate(ToolRequest(state=state())))
   client.assert_not_called();self.assertIsNone(result.state.answer);self.assertEqual(result.state.status,'tool_error')
- def test_generate_single_call_no_release(self):
-  response=MagicMock();response.json.return_value={'response':'{"excerpts":[{"evidence_id":"E1","quote":"Annual follow up."}]}'}
-  client=AsyncMock();client.post.return_value=response
-  manager=AsyncMock();manager.__aenter__.return_value=client
+ def test_generate_deterministic_quote_no_release(self):
   s=state(question='follow up',generation_evidence=[Report(**ROW)])
-  with patch.object(api,'source_problems',return_value=[]),patch.object(api.httpx,'AsyncClient',return_value=manager):result=asyncio.run(api.generate(ToolRequest(state=s)))
-  client.post.assert_awaited_once();self.assertIsNone(result.state.answer);self.assertEqual(result.state.candidate_answer,'Patient train-a: Annual follow up. [E1]')
-  prompt=client.post.call_args.kwargs['json']['prompt'];self.assertIn(ROW['text'],prompt)
- def test_generation_invalid_schema_fails_closed(self):
-  response=MagicMock();response.json.return_value={'response':'{"answer":"invented"}'}
-  client=AsyncMock();client.post.return_value=response;manager=AsyncMock();manager.__aenter__.return_value=client
-  with patch.object(api,'source_problems',return_value=[]),patch.object(api.httpx,'AsyncClient',return_value=manager):result=asyncio.run(api.generate(ToolRequest(state=state(generation_evidence=[Report(**ROW)]))))
-  self.assertEqual(result.state.status,'tool_error');self.assertIsNone(result.state.answer);client.post.assert_awaited_once()
+  with patch.object(api,'source_problems',return_value=[]),patch.object(api.httpx,'AsyncClient') as client:result=asyncio.run(api.generate(ToolRequest(state=s)))
+  client.assert_not_called();self.assertIsNone(result.state.answer);self.assertEqual(result.state.candidate_answer,'Patient train-a: Annual follow up. [E1]\nPatient train-a: BIRADS 2. [E1]')
+  self.assertEqual(result.state.status,'pending')
+ def test_generate_without_explicit_facts_is_empty(self):
+  row=Report(**{**ROW,'text':'No additional finding is documented.'})
+  with patch.object(api,'source_problems',return_value=[]),patch.object(api.httpx,'AsyncClient') as client:result=asyncio.run(api.generate(ToolRequest(state=state(generation_evidence=[row]))))
+  client.assert_not_called();self.assertEqual(result.state.candidate_answer,'')
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json,os,time
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 import requests
@@ -9,7 +10,8 @@ from n8n_client import DEFAULT_WEBHOOK,N8nError,ask_n8n,make_payload
 
 ROOT=Path(__file__).resolve().parent
 st.set_page_config(page_title='BCMID | Evidence workspace',page_icon=':material/radiology:',layout='wide')
-for key,default in {'result':None,'result_question':'','elapsed':0.,'recent_runs':[]}.items():
+for key,default in {'result':None,'result_question':'','elapsed':0.,'recent_runs':[],
+                    'chat_messages':[],'chat_session_id':uuid.uuid4().hex}.items():
  if key not in st.session_state:st.session_state[key]=default
 webhook=(dotenv_values(ROOT/'.env').get('N8N_WEBHOOK_URL') or os.getenv('N8N_WEBHOOK_URL') or DEFAULT_WEBHOOK).strip()
 parsed=urlparse(webhook)
@@ -21,7 +23,7 @@ def service_status(webhook_url):
  n8n_health=f'{parsed.scheme}://{parsed.netloc}/healthz' if parsed.hostname in {'localhost','127.0.0.1','::1'} else None
  for name,url in [('n8n',n8n_health),('Tools API','http://127.0.0.1:8000/health')]:
   if not url:result[name]=False;continue
-  try:result[name]=requests.get(url,timeout=2).status_code==200
+  try:result[name]=requests.get(url,timeout=5).status_code==200
   except requests.RequestException:result[name]=False
  return result
 
@@ -33,7 +35,7 @@ def local_image(reference):
 with st.sidebar:
  st.title(':material/radiology: BCMID')
  st.caption('EVIDENCE WORKSPACE')
- page=st.radio('Workspace',['Explore evidence','Testing guide'],label_visibility='collapsed',key='page')
+ page=st.radio('Workspace',['Chat assistant','Explore evidence','Testing guide'],label_visibility='collapsed',key='page')
  st.divider()
  st.caption('LOCAL SERVICES')
  health=service_status(webhook)
@@ -49,6 +51,124 @@ with st.sidebar:
  st.caption('Train-set evidence only. Similarity is not diagnostic confidence. Image search uses ViT, not the Kaggle CLIP backend.')
  if st.button('Clear results',icon=':material/delete:',width='stretch'):
   st.session_state.result=None;st.session_state.recent_runs=[];st.rerun()
+
+if page=='Chat assistant':
+ st.caption('BCMID / EVIDENCE ASSISTANT')
+ st.title('Ask about the evidence.')
+ st.write('Ask a report question, attach a reference image, or do both. Replies are limited to retrieved training evidence and checked quotations.')
+ st.info('Research demonstration only. Similar-case evidence belongs to other cases; it is not a finding about the uploaded patient and cannot diagnose or recommend care.')
+ allow_quote=st.toggle('Allow a checked quotation for explicit follow-up or BI-RADS wording',value=False,
+                       help='Only source-verified, verbatim wording can be released. General questions return evidence cards.')
+ for msg in st.session_state.chat_messages:
+  with st.chat_message(msg['role']):
+   if msg['role']=='user': st.write(msg['content'])
+   else:
+    st.badge(msg['label'],color=msg['color'])
+    if msg.get('answer'): st.markdown(msg['answer'])
+    elif msg.get('notice'): st.info(msg['notice'])
+    details=msg.get('details')
+    if details:
+     if details.get('report_passages'):
+      st.markdown('#### Report evidence')
+      for row in details['report_passages']:
+       with st.container(border=True):
+        st.markdown(f"**Passage {row.get('rank','?')} · Similar case {row.get('patient_id','not supplied')}**")
+        st.caption(f"{row.get('split','unknown split')} · {row.get('source','unknown source')} · {row.get('passage_id','no passage ID')}")
+        st.write(row.get('text',''))
+        if row.get('similarity') is not None: st.caption(f"Similarity {row['similarity']:.3f} · not a confidence score")
+     if details.get('similar_images'):
+      st.markdown('#### Similar images · other training cases')
+      st.caption('These are visually similar training examples. Their reports and metadata are not facts about the uploaded image.')
+      for row in details['similar_images']:
+       with st.container(border=True):
+        st.markdown(f"**Rank {row.get('rank','?')} · Similar case {row.get('patient_id','not supplied')}**")
+        st.write(f"{row.get('modality','Unknown modality')} · {row.get('split','unknown split')} · similarity {row.get('similarity',0):.3f}")
+        st.caption(f"{row.get('source_image_reference','')} · {row.get('image_id','')}")
+     if details.get('citations'): st.caption('Checked source IDs: '+', '.join(details['citations']))
+     with st.expander('Run details'):
+      st.caption(f"Elapsed {msg.get('seconds',0):.1f} s · intent {details.get('intent','unknown')} · request {details.get('request_id','unknown')}")
+      st.write('Tools called');st.code(' → '.join(details.get('tools_called',[])) or 'No tools reported',language=None)
+      st.write('Evidence check');st.json(details.get('checker',{}))
+      st.write('Execution trace');st.code('\n'.join(details.get('trace',[])) or 'No trace reported',language=None)
+      if details.get('errors'): st.error(' · '.join(details['errors']))
+      if details.get('limitations'):
+       for item in details['limitations']: st.caption(item)
+      st.download_button('Download this result',json.dumps(details,indent=2),file_name='bcmid_result.json',mime='application/json',key=f"download_{msg.get('request_id','none')}")
+ if not st.session_state.chat_messages:
+  st.markdown('**Try a first question**')
+  st.caption('“Find report findings about annual follow up.”  ·  “Find similar images for this reference.”  ·  “Find report evidence for this image.”')
+ if st.button('Clear conversation',icon=':material/delete_sweep:',width='content'):
+  st.session_state.chat_messages=[]
+  st.session_state.chat_session_id=uuid.uuid4().hex
+  st.session_state.result=None
+  st.rerun()
+ submission=st.chat_input('Ask a question or attach a reference image',accept_file=True,
+                          file_type=['png','jpg','jpeg','webp'],key='chat_input')
+ if submission:
+  question=(submission.text or '').strip()
+  uploads=list(submission.files or [])
+  upload=uploads[0] if uploads else None
+  image_bytes=upload.getvalue() if upload else None
+  if not question and not image_bytes:
+   st.warning('Enter a question or attach one image.')
+  else:
+   user_label=question or 'Find similar images.'
+   if upload: user_label += f"\n\nAttached image: {upload.name}"
+   st.session_state.chat_messages.append({'role':'user','content':user_label})
+   if not question and image_bytes: question='Find similar images.'
+   with st.chat_message('user'):
+    st.write(user_label)
+    if upload: st.image(image_bytes,caption='Uploaded reference image',width=280)
+   with st.chat_message('assistant'):
+    status_slot=st.status('Sending this turn to the local n8n workflow…',expanded=True)
+    start=time.monotonic()
+    try:
+     payload=make_payload(question,retrieve_only=not allow_quote,image=image_bytes,
+                          filters={'split':'train'},session_id=st.session_state.chat_session_id)
+     reply=ask_n8n(webhook,payload,timeout=180)
+     elapsed=time.monotonic()-start
+     d=reply.details
+     label,colour={
+      'answered':('Checked answer','green'),'retrieved':('Evidence retrieved','blue'),
+      'abstained':('Insufficient evidence · answer withheld','orange'),'tool_error':('Tool error','red'),
+      'out_of_scope':('Outside research scope','orange'),'not_found':('No matches','orange'),
+      'ok':('Metadata found','green'),'invalid_request':('Invalid request','orange')
+     }[reply.status]
+     notice=None if reply.status=='answered' else reply.answer
+     assistant_text=reply.answer if reply.status=='answered' else notice
+     st.badge(label,color=colour)
+     if assistant_text: (st.markdown(assistant_text) if reply.status=='answered' else st.info(assistant_text))
+     if d.get('report_passages'):
+      st.markdown('#### Report evidence')
+      for row in d['report_passages']:
+       with st.container(border=True):
+        st.markdown(f"**Passage {row.get('rank','?')} · Similar case {row.get('patient_id','not supplied')}**")
+        st.caption(f"{row.get('split','unknown split')} · {row.get('source','unknown source')} · {row.get('passage_id','no passage ID')}")
+        st.write(row.get('text',''))
+        if row.get('similarity') is not None: st.caption(f"Similarity {row['similarity']:.3f} · not a confidence score")
+     if d.get('similar_images'):
+      st.markdown('#### Similar images · other training cases')
+      st.caption('Examples from other cases, shown separately from report evidence.')
+      for row in d['similar_images']:
+       with st.container(border=True):
+        img_col,info_col=st.columns([1,3])
+        path=local_image(row.get('source_image_reference',''))
+        if path: img_col.image(str(path),width=180,alt='Retrieved similar training image')
+        else: img_col.caption('Image preview unavailable locally')
+        info_col.markdown(f"**Rank {row.get('rank','?')} · Similar case {row.get('patient_id','not supplied')}**")
+        info_col.write(f"{row.get('modality','Unknown modality')} · {row.get('split','unknown split')} · similarity {row.get('similarity',0):.3f}")
+        info_col.caption(f"{row.get('source_image_reference','')} · {row.get('image_id','')}")
+     status_slot.update(label=f'Completed · {elapsed:.1f} seconds',state='complete',expanded=False)
+     st.session_state.chat_messages.append({'role':'assistant','label':label,'color':colour,'answer':reply.answer if reply.status=='answered' else None,
+       'notice':notice,'details':d,'seconds':elapsed,'request_id':d.get('request_id','unknown')})
+    except N8nError as exc:
+     elapsed=time.monotonic()-start
+     status_slot.update(label='Request did not complete',state='error',expanded=True)
+     st.error(str(exc))
+     st.session_state.chat_messages.append({'role':'assistant','label':'Tool error','color':'red','notice':str(exc),
+       'details':None,'seconds':elapsed,'request_id':'transport-error'})
+  st.rerun()
+ st.stop()
 
 if page=='Testing guide':
  st.caption('BCMID / DEMONSTRATION')
@@ -119,7 +239,7 @@ if submitted:
   intent={'Reports':'report_question','Images':'image_search','Image + reports':'image_and_report_question','Metadata':'metadata_lookup'}[mode]
   payload=make_payload(question,patient_id=pid if mode!='Metadata' else None,filters=filters,image=upload.getvalue() if upload else None,intent=intent,retrieve_only=not generate)
   start=time.monotonic()
-  with st.spinner('Retrieving and checking evidence… Generation may take a few minutes.' if generate else 'Retrieving and checking evidence…'):
+  with st.spinner('Retrieving and checking evidence…'):
    reply=ask_n8n(webhook,payload)
   st.session_state.result=reply
   st.session_state.result_question=question or 'Structured metadata lookup'

@@ -27,12 +27,17 @@ class N8nReply:
  status:str
 
 def make_payload(question:str='',*,patient_id:str|None=None,filters:dict|None=None,
-                 image:bytes|None=None,intent:str|None=None,retrieve_only:bool=True)->dict:
+                 image:bytes|None=None,intent:str|None=None,retrieve_only:bool=True,
+                 session_id:str|None=None)->dict:
  if len(question.strip())>2000:raise N8nError('Keep the question within 2,000 characters.')
  payload={'question':question.strip(),'retrieve_only':retrieve_only}
  if patient_id and patient_id.strip():payload['patient_id']=patient_id.strip()
  if filters is not None:payload['filters']=filters
  if intent:payload['intent']=intent
+ if session_id:
+  if not 16<=len(session_id)<=128 or not all(c.isalnum() or c in '-_' for c in session_id):
+   raise N8nError('The conversation session identifier is invalid.')
+  payload['session_id']=session_id
  if image is not None:
   if not image or len(image)>20*1024*1024:raise N8nError('Choose a nonempty image smaller than 20 MiB.')
   payload['image_base64']=base64.b64encode(image).decode('ascii')
@@ -55,11 +60,14 @@ def parse_response(data:Any)->N8nReply:
  safe.pop('candidate_answer',None)
  return N8nReply(answer,safe['sources'],safe['checker'],safe,status)
 
-def ask_n8n(webhook_url:str,payload:dict,timeout:int=620,post:Callable|None=None)->N8nReply:
+def ask_n8n(webhook_url:str,payload:dict,timeout:int=180,post:Callable|None=None)->N8nReply:
  url=urlparse(webhook_url.strip())
  if url.scheme not in {'http','https'} or url.hostname not in {'localhost','127.0.0.1','::1'}:
   raise N8nError('Use a local n8n webhook URL (localhost or 127.0.0.1).')
- try:response=(post or requests.post)(webhook_url,json=payload,timeout=timeout)
+ body=dict(payload)
+ session_id=body.pop('session_id',None)
+ headers={'X-BCMID-Session-ID':session_id} if session_id else None
+ try:response=(post or requests.post)(webhook_url,json=body,headers=headers,timeout=timeout)
  except requests.Timeout as exc:raise N8nError('The workflow timed out. Check its execution before submitting again.') from exc
  except requests.RequestException as exc:raise N8nError('Cannot reach n8n. Start the demo and confirm the published webhook URL.') from exc
  if not 200<=response.status_code<300:raise N8nError(f'n8n returned HTTP {response.status_code}. Publish the workflow and use its production webhook.')
