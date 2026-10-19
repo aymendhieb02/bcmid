@@ -1,1 +1,58 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img"><defs><linearGradient id="b" x2="1" y2="1"><stop stop-color="#09111f"/><stop offset="1" stop-color="#183650"/></linearGradient><marker id="m" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#77ddd0"/></marker></defs><rect width="1200" height="400" rx="24" fill="url(#b)"/><text x="48" y="48" fill="#8ff1d9" font-family="Arial" font-size="13" font-weight="bold" letter-spacing="2">LOCAL RESEARCH STACK</text><text x="48" y="91" fill="#fff" font-family="Arial" font-size="30" font-weight="bold">One request. A visible, evidence-aware pipeline.</text><text x="48" y="120" fill="#b3c5d8" font-family="Arial" font-size="15">A modular stack keeps orchestration and source checks inspectable.</text><g font-family="Arial"><g><rect x="48" y="160" width="220" height="170" rx="18" fill="#13263b" stroke="#3a5875"/><rect x="48" y="160" width="220" height="6" fill="#ff7184"/><text x="72" y="201" fill="#ff9aa7" font-size="12">01 · EXPERIENCE</text><text x="72" y="240" fill="#fff" font-size="23" font-weight="bold">Streamlit</text><text x="72" y="276" fill="#c1d2e3" font-size="14">Search · filters · citations</text><text x="72" y="305" fill="#829bb5" font-size="13">Interface · :8501</text></g><g><rect x="342" y="160" width="220" height="170" rx="18" fill="#13263b" stroke="#3a5875"/><rect x="342" y="160" width="220" height="6" fill="#ed82b6"/><text x="366" y="201" fill="#f9a4c8" font-size="12">02 · ORCHESTRATION</text><text x="366" y="240" fill="#fff" font-size="23" font-weight="bold">n8n</text><text x="366" y="276" fill="#c1d2e3" font-size="14">Routes · tools · response</text><text x="366" y="305" fill="#829bb5" font-size="13">Webhook · :5678</text></g><g><rect x="636" y="160" width="220" height="170" rx="18" fill="#13263b" stroke="#3a5875"/><rect x="636" y="160" width="220" height="6" fill="#55d9af"/><text x="660" y="201" fill="#81f0cb" font-size="12">03 · FEATURE TOOLS</text><text x="660" y="240" fill="#fff" font-size="23" font-weight="bold">FastAPI</text><text x="660" y="276" fill="#c1d2e3" font-size="14">Retrieve · verify · extract</text><text x="660" y="305" fill="#829bb5" font-size="13">Local API · :8000</text></g><g><rect x="930" y="145" width="220" height="200" rx="18" fill="#13263b" stroke="#3a5875"/><rect x="930" y="145" width="220" height="6" fill="#55e1ba"/><text x="954" y="187" fill="#8ee8e0" font-size="12">04 · LOCAL KNOWLEDGE</text><text x="954" y="225" fill="#fff" font-size="21" font-weight="bold">Saved assets</text><text x="954" y="257" fill="#c1d2e3" font-size="14">E5 + Chroma reports</text><text x="954" y="283" fill="#c1d2e3" font-size="14">ViT image vectors</text><text x="954" y="309" fill="#c1d2e3" font-size="14">Metadata + Ollama</text><text x="954" y="333" fill="#829bb5" font-size="12">Stay local</text></g></g><g fill="none" stroke="#77ddd0" stroke-width="3" marker-end="url(#m)"><path d="M274 245h60"/><path d="M568 245h60"/><path d="M862 245h60"/></g><text x="300" y="225" fill="#b3c5d8" font-family="Arial" font-size="11">request</text><text x="594" y="225" fill="#b3c5d8" font-family="Arial" font-size="11">tool call</text><text x="888" y="225" fill="#b3c5d8" font-family="Arial" font-size="11">local search</text><text x="48" y="374" fill="#91a9c1" font-family="Arial" font-size="13">Similar-case retrieval is research evidence; it is not a patient-level conclusion.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
+  <title id="title">BCMID stable architecture and unpublished agent prototype</title>
+  <desc id="desc">Two separate local routes. The active stable route uses deterministic n8n routing and FastAPI tools. An unpublished prototype contains an n8n orchestrator, six specialist agents, connected API tools, and session scoped Simple Memory.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#081321"/><stop offset="1" stop-color="#162d43"/></linearGradient>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#7de0c6"/></marker>
+    <marker id="arr2" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#9ac0ff"/></marker>
+    <style>text{font-family:Arial,Helvetica,sans-serif}.small{font-size:14px;fill:#b4c7d9}.tiny{font-size:12px;fill:#9aafc3}.head{font-size:20px;font-weight:700;fill:#f6f9fc}.label{font-size:12px;font-weight:700;letter-spacing:1.4px}</style>
+  </defs>
+  <rect width="1440" height="760" rx="28" fill="url(#bg)"/>
+  <text x="48" y="48" class="label" fill="#7de0c6">BCMID · LOCAL RESEARCH STACK</text>
+  <text x="48" y="88" font-size="31" font-weight="700" fill="#fff">Two orchestration paths, one evidence boundary</text>
+  <text x="48" y="119" class="small">Architecture diagram reconstructed from the stable export, API implementation, and separately inspected prototype export.</text>
+
+  <rect x="36" y="146" width="1368" height="258" rx="22" fill="#102b35" stroke="#3a8d7b" stroke-width="2"/>
+  <rect x="54" y="160" width="280" height="30" rx="15" fill="#1b594d"/>
+  <text x="72" y="181" class="label" fill="#91f2d5">STABLE · ACTIVE LOCAL DEMO</text>
+  <text x="54" y="220" class="tiny">Deterministic routing nodes · no AI Agent nodes on this path</text>
+  <g>
+    <rect x="58" y="247" width="190" height="112" rx="16" fill="#1a2d43" stroke="#63819f"/>
+    <text x="78" y="278" class="label" fill="#ff9bad">INTERFACE</text><text x="78" y="310" class="head">Streamlit</text><text x="78" y="337" class="small">Question · image · filters</text>
+    <rect x="320" y="247" width="238" height="112" rx="16" fill="#1a2d43" stroke="#63819f"/>
+    <text x="340" y="278" class="label" fill="#ffb3d2">REQUEST ROUTER</text><text x="340" y="310" class="head">n8n workflow</text><text x="340" y="337" class="small">Classify · allowlist · route</text>
+    <rect x="635" y="247" width="225" height="112" rx="16" fill="#153a38" stroke="#50a68f"/>
+    <text x="655" y="278" class="label" fill="#8bf0cd">FEATURE TOOLS</text><text x="655" y="310" class="head">FastAPI</text><text x="655" y="337" class="small">Atomic retrieval · checks</text>
+    <rect x="938" y="247" width="200" height="112" rx="16" fill="#192f3c" stroke="#52758c"/>
+    <text x="958" y="278" class="label" fill="#a9d9ff">SAVED ASSETS</text><text x="958" y="310" class="head">E5 · ViT</text><text x="958" y="337" class="small">Chroma · vectors · catalog</text>
+    <rect x="1190" y="247" width="180" height="112" rx="16" fill="#342937" stroke="#9d6687"/>
+    <text x="1210" y="278" class="label" fill="#f2b7dc">RESPONSE</text><text x="1210" y="310" class="head">Evidence</text><text x="1210" y="337" class="small">Cited or withheld</text>
+  </g>
+  <g fill="none" stroke="#7de0c6" stroke-width="3" marker-end="url(#arr)"><path d="M254 303h58"/><path d="M564 303h63"/><path d="M866 303h66"/><path d="M1144 303h40"/></g>
+  <text x="264" y="290" class="tiny">webhook</text><text x="570" y="290" class="tiny">HTTP tools</text><text x="872" y="290" class="tiny">local search</text><text x="1148" y="290" class="tiny">checked</text>
+  <text x="58" y="385" class="tiny">Stable webhook: POST /webhook/bcmid-agent · active route has no conversation memory</text>
+
+  <rect x="36" y="424" width="1368" height="290" rx="22" fill="#111f38" stroke="#576b9d" stroke-width="2" stroke-dasharray="10 7"/>
+  <rect x="54" y="438" width="340" height="30" rx="15" fill="#39456f"/>
+  <text x="72" y="459" class="label" fill="#d4dcff">PROTOTYPE · UNPUBLISHED / NOT E2E VERIFIED</text>
+  <text x="54" y="495" class="tiny">Agent topology and memory connection are structurally verified from the separate export.</text>
+  <rect x="58" y="525" width="240" height="130" rx="16" fill="#202c4d" stroke="#7b8ed0"/>
+  <text x="78" y="555" class="label" fill="#bfccff">SINGLE PLANNER</text><text x="78" y="588" class="head">n8n Orchestrator</text><text x="78" y="616" class="small">Selects relevant specialist</text><text x="78" y="638" class="small">Plans · checks · responds</text>
+  <rect x="58" y="666" width="240" height="30" rx="12" fill="#433153" stroke="#a878b9"/>
+  <text x="74" y="687" font-size="13" fill="#f2d5ff">Simple Memory · direct ai_memory link</text>
+  <rect x="350" y="516" width="670" height="166" rx="18" fill="#172843" stroke="#556b8e"/>
+  <text x="372" y="543" class="label" fill="#a9d0ff">SIX SPECIALIST AI AGENT TOOLS</text>
+  <g font-size="14" font-weight="700" fill="#edf3fb">
+    <rect x="372" y="560" width="198" height="43" rx="10" fill="#233752"/><text x="385" y="587">Report Retrieval</text>
+    <rect x="586" y="560" width="198" height="43" rx="10" fill="#233752"/><text x="599" y="587">Image Retrieval</text>
+    <rect x="800" y="560" width="198" height="43" rx="10" fill="#233752"/><text x="813" y="587">Metadata Retrieval</text>
+    <rect x="372" y="620" width="198" height="43" rx="10" fill="#233752"/><text x="385" y="647">Evidence Checker</text>
+    <rect x="586" y="620" width="198" height="43" rx="10" fill="#233752"/><text x="599" y="647">Response Generator</text>
+    <rect x="800" y="620" width="198" height="43" rx="10" fill="#233752"/><text x="813" y="647">Multimodal Retrieval</text>
+  </g>
+  <rect x="1080" y="525" width="290" height="130" rx="16" fill="#153a38" stroke="#50a68f"/>
+  <text x="1100" y="555" class="label" fill="#8bf0cd">CONNECTED API TOOLS</text><text x="1100" y="588" class="head">FastAPI endpoints</text><text x="1100" y="616" class="small">HTTP Request Tool nodes</text><text x="1100" y="638" class="small">Multimodal: jobs → collect</text>
+  <g fill="none" stroke="#9ac0ff" stroke-width="2.5" marker-end="url(#arr2)"><path d="M300 580h44"/><path d="M1022 580h50"/></g>
+  <path d="M178 655v9" fill="none" stroke="#c88cde" stroke-width="2.5"/>
+  <text x="350" y="700" class="tiny">Shared local chat model connects to the orchestrator and specialist agents; orchestration remains in n8n.</text>
+</svg>
