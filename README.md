@@ -39,16 +39,19 @@ See [the architecture diagram](docs/architecture.svg), [answer flow](docs/answer
 
 ## Prototype agents and connected API tools
 
-The following table describes the **unpublished prototype’s exported structure**, not a claim that the complete agent route has passed live testing. The schemas use a shared `state` object defined by the API models. Tools return updated state or a job receipt.
+The table below describes the **unpublished prototype’s exported structure**. It is a plain-language guide to each role, not a claim that the full agent route has passed live testing. The Orchestrator is the only planner; the six specialists call their connected FastAPI tools and return state or job receipts.
 
-| Specialist AI Agent | Responsibility / when called | Connected FastAPI tool(s) | Input → returned state |
-| --- | --- | --- | --- |
-| Report Retrieval Agent | Search report passages for a report question, or as the report half of a combined request | `POST /tools/report-search` | `{state, top_k}` → ranked report passages and source metadata |
-| Image Retrieval Agent | Search saved image features for an image-only request | `POST /tools/image-search` | `{state, image_base64, top_k}` → similar training-image hits and metadata |
-| Metadata Retrieval Agent | Apply an allowed catalog filter or lookup | `POST /tools/metadata` | `{state}` with validated filters → matching metadata rows or no-match status |
-| Evidence Checker Agent | Check retrieved source integrity/sufficiency, or check answer claims and citations | `POST /tools/evidence-check` | `{state, stage}` where stage is evidence or answer → checker decision and problems |
-| Response Generator Agent | Prepare a narrow supported follow-up/BI-RADS quotation candidate when generation is requested and evidence is sufficient | `POST /tools/generate` | `{state}` with frozen generation evidence → candidate and updated tool state; the answer checker still decides release |
-| Multimodal Retrieval Agent | Handle image plus question by dispatching both retrieval operations and combining their results | `POST /tools/report-jobs`, `POST /tools/image-jobs`, then `POST /tools/jobs/collect` | Report/image jobs receive state and retrieval inputs; collect receives `{state, jobs}` → combined report and image evidence |
+| Agent | Simple role (FR) | Runs when… | Uses | Produces |
+| --- | --- | --- | --- | --- |
+| **Orchestrator AI Agent** | **Le chef d’orchestre** — chooses the route | A request arrives | Normalized request, local Ollama chat model, six specialist tools | Selects the needed specialist(s), orders checks, and returns a final state or safe abstention |
+| **Report Retrieval Agent** | **Le documentaliste** — finds report passages | A report question needs evidence, including the report half of a combined request | `POST /tools/report-search`; E5 embeddings and the Chroma report index | Up to five ranked training-report passages with source metadata |
+| **Image Retrieval Agent** | **Le chercheur d’images** — finds similar examples | A reference image is supplied for image-only search | `POST /tools/image-search`; saved ViT image vectors and optional modality filter | Similar training-image hits with source metadata and similarity scores; no image interpretation |
+| **Metadata Retrieval Agent** | **La fiche catalogue** — looks up structured fields | Validated catalog filters are requested | `POST /tools/metadata`; the local metadata JSON catalog | Matching metadata rows, counts, and provenance fields, or a no-match status |
+| **Evidence Checker Agent** | **Le surligneur / contrôleur** — checks support | After retrieval and before a checked answer can be released | `POST /tools/evidence-check`; retrieved state, canonical sources, attribution, and citations | Evidence sufficiency or answer decision with problems; failed checks mean abstention |
+| **Response Generator Agent** | **Le préparateur de citations** — extracts supported wording | Explicit follow-up or BI-RADS wording is requested and evidence is sufficient | `POST /tools/generate`; frozen, verified report passages | A verbatim extractive candidate with citation aliases for the checker to validate |
+| **Multimodal Retrieval Agent** | **Le chercheur combiné** — pairs image and report search | An image and a report question are submitted together | `POST /tools/report-jobs`, `POST /tools/image-jobs`, then `POST /tools/jobs/collect` | Combined report and image evidence from the training split |
+
+**Implementation details:** image search uses saved ViT features, not the Kaggle CLIP/Chroma experiment. Metadata comes from the local JSON catalog, not `df_alignement_v2`. The FastAPI quotation endpoint performs deterministic extraction; it does not ask Qwen to write the quoted answer. The answer checker still decides whether any candidate may be released.
 
 These API nodes are connected as **AI-callable HTTP Request Tool nodes** in the prototype export. They are not merely ordinary HTTP nodes whose names contain “tool”. In the stable workflow, API calls are ordinary HTTP Request nodes following deterministic routing.
 
