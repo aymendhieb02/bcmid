@@ -59,6 +59,13 @@ The screenshot shows the local FastAPI `/docs` page and the feature-tool routes 
 | `POST` | `/tools/image-jobs` | Start an image retrieval job |
 | `POST` | `/tools/jobs/collect` | Collect job results |
 
+
+## n8n workflow export
+
+[Download the seven-agent workflow import template](projet/n8n/exports/BCMID_Seven_Agent_Workflow_Public_Import_Template.json). It keeps the Orchestrator, six specialist Agents, native `ai_tool` links, session memory, evidence checks, and the final citation gate. The export is an **inactive template**, not a live-workflow backup or a runtime verification result. Its webhook path is unique to the template and its execution settings do not save successful, failed, or manual execution payloads by default.
+
+To use it, import it as a **new workflow** in n8n and keep it inactive until reviewed. Select the local Ollama credential for `Local Ollama · llama3.1:8b` after import. The API nodes default to `127.0.0.1:8000`; change that address only if n8n runs in an environment that cannot reach the host loopback address. Review execution retention before enabling diagnostic payload storage.
+
 ## Final notebook, report, and explainability
 
 The final project notebook and technical report are included for review:
@@ -127,6 +134,7 @@ Similarity is displayed as a retrieval score. Review the source records directly
 | `projet/agentic_local/evidence.py` | Evidence, source, attribution, and citation checks |
 | `projet/agentic_local/tools.py` | Report, image, and metadata retrieval implementations |
 | `projet/n8n/` | Portable workflow exports and Code-node logic |
+| `projet/n8n/exports/` | Inactive seven-agent import template |
 | `notebooks/` | Final Kaggle notebook, with outputs cleared for public sharing |
 | `docs/n8n-seven-agent-canvas.png` | Supplied n8n canvas snapshot |
 | `docs/streamlit-interface.png` | Streamlit Chat Assistant screenshot |

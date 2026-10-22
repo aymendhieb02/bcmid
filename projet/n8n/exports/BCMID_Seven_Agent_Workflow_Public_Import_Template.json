@@ -1,0 +1,983 @@
+{
+  "name": "BCMID Seven-Agent Workflow — Public Import Template",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bcmid-seven-agent-public-import-20261022",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "04bfdaf8-24fa-4cd3-a10c-ef43f9a1166f",
+      "name": "BCMID Agent Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        11664,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst rawBody = item.json.body ?? item.json;\nconst bodyValid = !!rawBody && typeof rawBody==='object' && !Array.isArray(rawBody);\nconst body = bodyValid ? rawBody : {};\nconst headers = item.json.headers ?? {};\nconst headerSession = headers['x-bcmid-session-id'] ?? headers['X-BCMID-Session-ID'];\nconst sessionId = typeof body.session_id === 'string' && body.session_id.length >= 16 ? body.session_id : (typeof headerSession === 'string' && headerSession.length >= 16 ? headerSession : ('bcmid-session-' + Date.now() + '-' + Math.random().toString(16).slice(2)));\nconst question = typeof body.question === 'string' ? body.question.trim() : '';\nconst intents = new Set(['report_question','image_search','image_and_report_question','metadata_lookup','out_of_scope_or_insufficient']);\nconst suppliedFilters = body.filters && typeof body.filters === 'object' && !Array.isArray(body.filters) ? body.filters : {};\nconst bodyPatient = body.patient_id;\nconst filterPatient = suppliedFilters.patient_id;\nconst patientTypeInvalid = (bodyPatient != null && typeof bodyPatient !== 'string') || (filterPatient != null && typeof filterPatient !== 'string');\nconst patientId = typeof bodyPatient === 'string' ? bodyPatient : (typeof filterPatient === 'string' ? filterPatient : null);\nconst imageBase64 = typeof body.image_base64 === 'string' ? body.image_base64 : '';\nconst hasImage = imageBase64.length > 0;\nconst explicitIntent = typeof body.intent === 'string' && intents.has(body.intent) ? body.intent : null;\nconst inferredIntent = hasImage ? (question ? 'image_and_report_question' : 'image_search') :\n  (patientId || (body.filters && Object.keys(body.filters).some(k=>k!=='split')) ? 'metadata_lookup' :\n  (question ? 'report_question' : null));\nconst intent = explicitIntent ?? inferredIntent;\nconst retrieveOnly = body.retrieve_only === true;\nconst headerRequest = headers['x-bcmid-request-id'] ?? headers['X-BCMID-Request-ID'];\nconst suppliedRequest = body.request_id ?? headerRequest;\nconst requestId = typeof suppliedRequest === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(suppliedRequest)\n  ? suppliedRequest : ('bcmid-' + Date.now() + '-' + Math.random().toString(16).slice(2));\nconst filters = {split:'train'};\nif (patientId !== null) filters.patient_id = patientId;\nif (typeof suppliedFilters.image_id === 'string') filters.image_id = suppliedFilters.image_id;\nif (suppliedFilters.modality === 'Mammogram' || suppliedFilters.modality === 'Ultrasound') filters.modality = suppliedFilters.modality;\nif (typeof suppliedFilters.has_report === 'boolean') filters.has_report = suppliedFilters.has_report;\nif (typeof suppliedFilters.has_structured_report === 'boolean') filters.has_structured_report = suppliedFilters.has_structured_report;\nif (typeof suppliedFilters.birads === 'string' && /^[0-6][a-cA-C]?$/.test(suppliedFilters.birads)) filters.birads = suppliedFilters.birads;\nconst errors = [];\nif (!bodyValid) errors.push('request_body_must_be_object');\nif (body.intent != null && !explicitIntent) errors.push('unsupported_explicit_intent');\nif (typeof bodyPatient==='string' && typeof filterPatient==='string' && bodyPatient!==filterPatient) errors.push('patient_id_conflict');\nif (!sessionId || sessionId.length < 16 || sessionId.length > 128) errors.push('missing_or_invalid_session_id');\nif (patientTypeInvalid) errors.push('patient_id_must_be_string');\nif (!intent) errors.push('missing_or_invalid_intent');\nif (question.length > 2000) errors.push('question_too_long');\nif (imageBase64.length > 28000000) errors.push('image_too_large');\nif (!question && !hasImage && intent !== 'metadata_lookup') errors.push('request_requires_question_or_image');\nif (intent === 'report_question' && !question) errors.push('report_question_required');\nif (intent === 'image_search' && !hasImage) errors.push('image_required');\nif (intent === 'image_and_report_question' && (!hasImage || !question)) errors.push('image_and_question_required');\nconst selectedTools = intent === 'report_question' ? ['report_search'] :\n  intent === 'image_search' ? ['image_search'] :\n  intent === 'image_and_report_question' ? ['report_search','image_search'] :\n  intent === 'metadata_lookup' ? ['metadata_lookup'] : [];\nconst needsGeneration = !retrieveOnly && ['report_question','image_and_report_question'].includes(intent);\nconst state = {\n  request_id: requestId, question, query: question, patient_id: patientId, filters,\n  intent: intent ?? 'out_of_scope_or_insufficient', tools: selectedTools,\n  needs_generation: needsGeneration, retrieve_only: retrieveOnly, retry_count: 0,\n  status: errors.length ? 'invalid_request' : 'pending', reports: [], images: [], metadata: [],\n  registry: [], generation_evidence: [], candidate_answer: '', answer: null, citations: [],\n  checker: {decision:'not_checked',problems:[],checked_passage_ids:[]},\n  tools_called: [], trace: ['normalize'], limitations: hasImage && !patientId ? ['query_patient_id_missing_same_patient_exclusion_not_guaranteed'] : [], errors,\n};\nreturn [{json:{state,image_base64:imageBase64,has_image:hasImage,requested_intent:intent,retrieve_only:retrieveOnly,question,patient_id:patientId,filters,sessionId}}];"
+      },
+      "id": "c3791eaa-ef96-431b-af1b-5039149fa44e",
+      "name": "Normalize BCMID Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11888,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "05ad5fcf-918f-49d4-9825-1e80add62d8c",
+              "leftValue": "={{ $json.state.status === 'pending' && $json.state.intent !== 'out_of_scope_or_insufficient' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "847c889f-9bed-44f7-9c23-23544772d8e5",
+      "name": "Request Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        12096,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify({intent:$json.state.intent,question:$json.state.question,has_image:$json.has_image}) }}",
+        "options": {
+          "systemMessage": "You are the BCMID request orchestrator. The validated intent is fixed. Make exactly ONE native specialist tool call:\nreport_question -> Report_Retrieval_Agent\nimage_search -> Image_Retrieval_Agent\nmetadata_lookup -> Metadata_Retrieval_Agent\nimage_and_report_question -> Multimodal_Retrieval_Agent\nDo not print tool-call JSON as text. Do not write a final answer. Do not alter the original question, patient ID, filters, train split, or evidence. The selected specialist owns API execution. After its return, only a short completion marker is needed. Conversation memory is context, never retrieved evidence.",
+          "maxIterations": 1,
+          "returnIntermediateSteps": true,
+          "passthroughBinaryImages": false,
+          "enableStreaming": false
+        }
+      },
+      "id": "6e1339e0-231d-495d-9720-b6f380976c07",
+      "name": "Orchestrator AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        12320,
+        2832
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Normalize BCMID Request').first().json.sessionId }}",
+        "contextWindowLength": 3
+      },
+      "id": "db64fcd1-6920-49ea-be6e-626631352aa7",
+      "name": "Conversation Memory — Session Scoped",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        12032,
+        2832
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama3.1:8b",
+        "options": {
+          "temperature": 0,
+          "keepAlive": "5m",
+          "numCtx": 4096,
+          "numPredict": 512
+        }
+      },
+      "id": "4f3fe389-1270-4277-80b4-b61d42528f43",
+      "name": "Local Ollama · llama3.1:8b",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        13152,
+        3872
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Retrieves training report passages for the validated report question. Input: the question text.",
+        "text": "={{ $('Normalize BCMID Request').first().json.state.question }}",
+        "options": {
+          "systemMessage": "You are the BCMID Report Retrieval Agent. Call the connected Report_Search_API tool exactly once now. Its request body is fixed by the workflow from validated state with split=train. Do not answer, summarize, or invent evidence.",
+          "maxIterations": 1,
+          "returnIntermediateSteps": true,
+          "passthroughBinaryImages": false
+        }
+      },
+      "name": "Report Retrieval Agent",
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "id": "23ff59e5-8203-481d-97e3-de8780528890",
+      "position": [
+        11696,
+        3200
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Searches training report passages for the validated BCMID request. Takes no arguments; the request body is fixed by the workflow.",
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/report-search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$('Normalize BCMID Request').first().json.state,top_k:5}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "name": "Report_Search_API",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "id": "9e2e0b2e-614a-48b1-b698-19d1daa43fda",
+      "position": [
+        12016,
+        3536
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Finds similar training images for the uploaded query image. Input: the question text (may be empty).",
+        "text": "Run the similarity search for the uploaded query image now.",
+        "options": {
+          "systemMessage": "You are the BCMID Image Retrieval Agent. Call the connected Image_Search_API tool exactly once now. The workflow attaches the query image; you never see it and must not describe, interpret, or diagnose it. Results are similar training cases only.",
+          "maxIterations": 1,
+          "returnIntermediateSteps": true,
+          "passthroughBinaryImages": false
+        }
+      },
+      "name": "Image Retrieval Agent",
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "id": "39b652b4-eb8a-4b26-95b3-791f5faeff43",
+      "position": [
+        12624,
+        3152
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Similarity search over training images using the uploaded query image. Takes no arguments; the request body is fixed by the workflow.",
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/image-search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$('Normalize BCMID Request').first().json.state,image_base64:$('Normalize BCMID Request').first().json.image_base64,top_k:5}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Image_Search_API",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "id": "72c0451a-34af-44b2-a8fb-9a583e1c5f06",
+      "position": [
+        12544,
+        3392
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Looks up catalog metadata for the validated patient filter. Input: the question text (may be empty).",
+        "text": "Run the metadata lookup for the validated filters now.",
+        "options": {
+          "systemMessage": "You are the BCMID Metadata Retrieval Agent. Call the connected Metadata_Lookup_API tool exactly once now. Patient ID and filters are fixed by the workflow; do not repeat, alter, or invent them.",
+          "maxIterations": 1,
+          "returnIntermediateSteps": true,
+          "passthroughBinaryImages": false
+        }
+      },
+      "name": "Metadata Retrieval Agent",
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "id": "62e86b55-bef6-49e4-aa20-8258f3efdf57",
+      "position": [
+        11696,
+        3616
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Catalog metadata lookup for the validated filters. Takes no arguments; the request body is fixed by the workflow.",
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/metadata",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:$('Normalize BCMID Request').first().json.state}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "name": "Metadata_Lookup_API",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "id": "f1690656-213c-4f29-b2d9-7a2cc7bace16",
+      "position": [
+        11856,
+        3776
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst clone = value => JSON.parse(JSON.stringify(value));\nfunction unpack(value) {\n  for (let depth=0; depth<10; depth++) {\n    if (typeof value === 'string') {\n      try { value=JSON.parse(value.trim().replace(/^```(?:json)?\\s*/i,'').replace(/```\\s*$/,'')); }\n      catch { return null; }\n    } else if (Array.isArray(value)) {\n      if (value.length!==1) return null;\n      value=value[0];\n    } else if (value && typeof value==='object') {\n      if (value.request_id || Array.isArray(value.intermediateSteps) || value.state) return value;\n      if (value.json!==undefined) value=value.json;\n      else if (value.body!==undefined) value=value.body;\n      else if (value.response!==undefined) value=value.response;\n      else if (value.output!==undefined) value=value.output;\n      else return value;\n    } else return null;\n  }\n  return null;\n}\nconst toolName = step => String(step?.action?.tool ?? step?.action?.name ?? '');\nfunction oneTool(output, expected) {\n  const steps=Array.isArray(output?.intermediateSteps)?output.intermediateSteps:[];\n  if (steps.length!==1 || toolName(steps[0])!==expected) throw new Error('missing_wrong_or_duplicate_native_call:'+expected);\n  const value=unpack(steps[0].observation);\n  if (!value || value.error) throw new Error('invalid_native_tool_observation:'+expected);\n  return value;\n}\nconst FILTER_KEYS=['split','patient_id','image_id','modality','has_report','has_structured_report','birads'];\nfunction sameIdentity(state, base) {\n  return state && typeof state==='object' && state.request_id===base.request_id &&\n    state.intent===base.intent && state.question===base.question && state.patient_id===base.patient_id &&\n    state.filters?.split==='train' && FILTER_KEYS.every(k=>(state.filters?.[k]??null)===(base.filters?.[k]??null));\n}\nconst reportFields=['passage_id','patient_id','source','split','text'];\nconst imageFields=['image_id','patient_id','source_image_reference','split'];\nconst validRows=(rows,fields)=>Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&fields.every(k=>typeof row[k]==='string'));\nconst fingerprint=(rows,fields)=>JSON.stringify((rows||[]).map(row=>fields.map(k=>row?.[k]??null)));\nfunction sameEvidence(state,base) {\n  return fingerprint(state.reports,reportFields)===fingerprint(base.reports,reportFields) &&\n    fingerprint(state.images,imageFields.concat(['modality']))===fingerprint(base.images,imageFields.concat(['modality'])) &&\n    fingerprint(state.generation_evidence,reportFields)===fingerprint(base.generation_evidence,reportFields);\n}\nfunction failState(base,why) {\n  base.status='tool_error'; base.answer=null; base.candidate_answer=''; base.citations=[];\n  base.errors=[...(Array.isArray(base.errors)?base.errors:[]),why];\n  base.checker={decision:'abstain',problems:[why],checked_passage_ids:[]};\n  base.trace=[...(base.trace||[]),'validation_failed'];\n  return base;\n}\n\nconst norm=$('Normalize BCMID Request').first().json;\nconst base=clone(norm.state);\nconst trace={orchestrator_tool_calls:[],specialist_tool_calls:[],api_states_valid:false};\nconst done=route=>{ base.native_trace=trace; return [{json:{state:base,route,native_trace:trace}}]; };\ntry {\n  const expected={report_question:['Report_Retrieval_Agent','Report_Search_API'],image_search:['Image_Retrieval_Agent','Image_Search_API'],metadata_lookup:['Metadata_Retrieval_Agent','Metadata_Lookup_API'],image_and_report_question:['Multimodal_Retrieval_Agent','Multimodal_Search_Tool']}[base.intent];\n  if (!expected) throw new Error('unsupported_retrieval_intent');\n  const root=$input.first().json;\n  trace.orchestrator_tool_calls=(root.intermediateSteps||[]).map(toolName);\n  const specialist=oneTool(root,expected[0]);\n  trace.specialist_tool_calls=(specialist.intermediateSteps||[]).map(toolName);\n  const envelope=oneTool(specialist,expected[1]);\n  const result=envelope.state??envelope;\n  if (!sameIdentity(result,base)) throw new Error('retrieval_identity_or_filter_mismatch');\n  if (result.status==='tool_error' || (result.errors||[]).length) throw new Error('retrieval_api_returned_error');\n  const reports=base.intent==='report_question'||base.intent==='image_and_report_question'?result.reports:[];\n  const images=base.intent==='image_search'||base.intent==='image_and_report_question'?result.images:[];\n  if (!validRows(reports,reportFields)||!validRows(images,imageFields)) throw new Error('retrieval_records_invalid');\n  if (reports.some(r=>r.split!=='train')||images.some(r=>r.split!=='train')) throw new Error('non_train_evidence');\n  if (base.patient_id && images.some(r=>r.patient_id===base.patient_id)) throw new Error('query_patient_in_image_results');\n  if (base.intent==='image_and_report_question') {\n    if (envelope.job_pair_verified!==true || JSON.stringify(envelope.job_kinds)!==JSON.stringify(['report','image'])) throw new Error('multimodal_pair_not_verified');\n    if (base.patient_id && reports.some(r=>r.patient_id===base.patient_id)) throw new Error('query_patient_in_combined_report_results');\n  }\n  const metadata=base.intent==='metadata_lookup'?result.metadata:[];\n  if (!Array.isArray(metadata)||metadata.some(r=>!r||typeof r!=='object'||typeof r.patient_id!=='string'||(base.patient_id&&r.patient_id!==base.patient_id)||(r.split!=null&&r.split!=='train'))) throw new Error('metadata_identity_invalid');\n  base.reports=reports;base.images=images;base.metadata=metadata;base.generation_evidence=reports;\n  base.tools_called=Array.isArray(result.tools_called)?result.tools_called:[];\n  base.limitations=[...new Set([...(base.limitations||[]),...(result.limitations||[])])];\n  base.status=result.status??'retrieved';\n  base.registry=[...reports.map(r=>({kind:'report',id:r.passage_id,patient_id:r.patient_id,source:r.source,split:r.split,modality:r.modality??null,rank:r.rank,similarity:r.similarity??null})),...images.map(r=>({kind:'image',id:r.image_id,patient_id:r.patient_id,source:r.source_image_reference,split:r.split,modality:r.modality??null,rank:r.rank,similarity:r.similarity??null}))];\n  trace.api_states_valid=true;base.trace.push('native_retrieval_verified');\n  return done(base.intent==='metadata_lookup'?'final':'evidence');\n} catch(error) { failState(base,error.message); return done('final'); }\n"
+      },
+      "name": "Validate Native Tool Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "id": "856026d8-5122-4e68-9c64-91ea0bc7b712",
+      "position": [
+        12688,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ ['evidence','final'].indexOf($json.route) }}"
+      },
+      "id": "8ea24f4b-80fc-4770-9b9d-97b05c81090b",
+      "name": "Route After Native Tools",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        12896,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Call once to run Evidence_Check_API on the fixed validated workflow state. Takes no authority over evidence, patient IDs, filters, or question.",
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/evidence-check",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:Object.fromEntries(Object.entries($('Validate Native Tool Result').first().json.state).filter(entry => entry[0] !== 'native_trace')),stage:'evidence'}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "874971cb-18a3-440e-9289-45122a201ed7",
+      "name": "Evidence_Check_API",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        13344,
+        3104
+      ],
+      "notes": "Native API tool. Only the recorded tool observation is accepted; the Agent completion text is ignored."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst clone = value => JSON.parse(JSON.stringify(value));\nfunction unpack(value) {\n  for (let depth=0; depth<10; depth++) {\n    if (typeof value === 'string') {\n      try { value=JSON.parse(value.trim().replace(/^```(?:json)?\\s*/i,'').replace(/```\\s*$/,'')); }\n      catch { return null; }\n    } else if (Array.isArray(value)) {\n      if (value.length!==1) return null;\n      value=value[0];\n    } else if (value && typeof value==='object') {\n      if (value.request_id || Array.isArray(value.intermediateSteps) || value.state) return value;\n      if (value.json!==undefined) value=value.json;\n      else if (value.body!==undefined) value=value.body;\n      else if (value.response!==undefined) value=value.response;\n      else if (value.output!==undefined) value=value.output;\n      else return value;\n    } else return null;\n  }\n  return null;\n}\nconst toolName = step => String(step?.action?.tool ?? step?.action?.name ?? '');\nfunction oneTool(output, expected) {\n  const steps=Array.isArray(output?.intermediateSteps)?output.intermediateSteps:[];\n  if (steps.length!==1 || toolName(steps[0])!==expected) throw new Error('missing_wrong_or_duplicate_native_call:'+expected);\n  const value=unpack(steps[0].observation);\n  if (!value || value.error) throw new Error('invalid_native_tool_observation:'+expected);\n  return value;\n}\nconst FILTER_KEYS=['split','patient_id','image_id','modality','has_report','has_structured_report','birads'];\nfunction sameIdentity(state, base) {\n  return state && typeof state==='object' && state.request_id===base.request_id &&\n    state.intent===base.intent && state.question===base.question && state.patient_id===base.patient_id &&\n    state.filters?.split==='train' && FILTER_KEYS.every(k=>(state.filters?.[k]??null)===(base.filters?.[k]??null));\n}\nconst reportFields=['passage_id','patient_id','source','split','text'];\nconst imageFields=['image_id','patient_id','source_image_reference','split'];\nconst validRows=(rows,fields)=>Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&fields.every(k=>typeof row[k]==='string'));\nconst fingerprint=(rows,fields)=>JSON.stringify((rows||[]).map(row=>fields.map(k=>row?.[k]??null)));\nfunction sameEvidence(state,base) {\n  return fingerprint(state.reports,reportFields)===fingerprint(base.reports,reportFields) &&\n    fingerprint(state.images,imageFields.concat(['modality']))===fingerprint(base.images,imageFields.concat(['modality'])) &&\n    fingerprint(state.generation_evidence,reportFields)===fingerprint(base.generation_evidence,reportFields);\n}\nfunction failState(base,why) {\n  base.status='tool_error'; base.answer=null; base.candidate_answer=''; base.citations=[];\n  base.errors=[...(Array.isArray(base.errors)?base.errors:[]),why];\n  base.checker={decision:'abstain',problems:[why],checked_passage_ids:[]};\n  base.trace=[...(base.trace||[]),'validation_failed'];\n  return base;\n}\n\nconst base=clone($('Validate Native Tool Result').first().json.state);\nconst done=()=>[{json:{state:base,response_mode:base.checker?.decision==='sufficient'&&!base.errors.length&&base.needs_generation&&!base.retrieve_only?'generate':'final'}}];\ntry {\n  const envelope=oneTool($input.first().json,'Evidence_Check_API');\n  const result=envelope.state??envelope;\n  if (!sameIdentity(result,base)||!sameEvidence(result,base)) throw new Error('evidence_api_state_or_provenance_changed');\n  if (!['sufficient','insufficient','abstain'].includes(result.checker?.decision)) throw new Error('evidence_decision_invalid');\n  const checked=result.checker.checked_passage_ids;\n  const allowed=new Set(base.reports.map(r=>r.passage_id));\n  if (!Array.isArray(checked)||new Set(checked).size!==checked.length||checked.some(id=>!allowed.has(id))) throw new Error('evidence_checked_passage_ids_invalid');\n  base.native_trace={...(base.native_trace||{}),evidence_tool_calls:['Evidence_Check_API']};\n  base.checker=result.checker;base.errors=Array.isArray(result.errors)?result.errors:base.errors;\n  base.status=result.status??base.status;\n  base.limitations=[...new Set([...(base.limitations||[]),...(result.limitations||[])])];\n  base.trace.push('native_evidence_check_verified');return done();\n} catch(error) {failState(base,error.message);return done();}\n"
+      },
+      "name": "Choose Response Mode",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "id": "a79bd994-0060-4b21-a1b4-302a74e5fcc7",
+      "position": [
+        13504,
+        2640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ ['final','generate'].indexOf($json.response_mode) }}"
+      },
+      "name": "Choose Response Path",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "id": "8cad606c-5de8-45a6-b155-b8828e3e9967",
+      "position": [
+        13760,
+        2832
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Call once to run Response_Generator_API on the fixed validated workflow state. Takes no authority over evidence, patient IDs, filters, or question.",
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:Object.fromEntries(Object.entries($('Choose Response Mode').first().json.state).filter(entry => entry[0] !== 'native_trace'))}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "88fb9ee1-4ed3-4eaa-ae03-368b98921d9a",
+      "name": "Response_Generator_API",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        13664,
+        3760
+      ],
+      "notes": "Native API tool. Only the recorded tool observation is accepted; the Agent completion text is ignored."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst clone = value => JSON.parse(JSON.stringify(value));\nfunction unpack(value) {\n  for (let depth=0; depth<10; depth++) {\n    if (typeof value === 'string') {\n      try { value=JSON.parse(value.trim().replace(/^```(?:json)?\\s*/i,'').replace(/```\\s*$/,'')); }\n      catch { return null; }\n    } else if (Array.isArray(value)) {\n      if (value.length!==1) return null;\n      value=value[0];\n    } else if (value && typeof value==='object') {\n      if (value.request_id || Array.isArray(value.intermediateSteps) || value.state) return value;\n      if (value.json!==undefined) value=value.json;\n      else if (value.body!==undefined) value=value.body;\n      else if (value.response!==undefined) value=value.response;\n      else if (value.output!==undefined) value=value.output;\n      else return value;\n    } else return null;\n  }\n  return null;\n}\nconst toolName = step => String(step?.action?.tool ?? step?.action?.name ?? '');\nfunction oneTool(output, expected) {\n  const steps=Array.isArray(output?.intermediateSteps)?output.intermediateSteps:[];\n  if (steps.length!==1 || toolName(steps[0])!==expected) throw new Error('missing_wrong_or_duplicate_native_call:'+expected);\n  const value=unpack(steps[0].observation);\n  if (!value || value.error) throw new Error('invalid_native_tool_observation:'+expected);\n  return value;\n}\nconst FILTER_KEYS=['split','patient_id','image_id','modality','has_report','has_structured_report','birads'];\nfunction sameIdentity(state, base) {\n  return state && typeof state==='object' && state.request_id===base.request_id &&\n    state.intent===base.intent && state.question===base.question && state.patient_id===base.patient_id &&\n    state.filters?.split==='train' && FILTER_KEYS.every(k=>(state.filters?.[k]??null)===(base.filters?.[k]??null));\n}\nconst reportFields=['passage_id','patient_id','source','split','text'];\nconst imageFields=['image_id','patient_id','source_image_reference','split'];\nconst validRows=(rows,fields)=>Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&fields.every(k=>typeof row[k]==='string'));\nconst fingerprint=(rows,fields)=>JSON.stringify((rows||[]).map(row=>fields.map(k=>row?.[k]??null)));\nfunction sameEvidence(state,base) {\n  return fingerprint(state.reports,reportFields)===fingerprint(base.reports,reportFields) &&\n    fingerprint(state.images,imageFields.concat(['modality']))===fingerprint(base.images,imageFields.concat(['modality'])) &&\n    fingerprint(state.generation_evidence,reportFields)===fingerprint(base.generation_evidence,reportFields);\n}\nfunction failState(base,why) {\n  base.status='tool_error'; base.answer=null; base.candidate_answer=''; base.citations=[];\n  base.errors=[...(Array.isArray(base.errors)?base.errors:[]),why];\n  base.checker={decision:'abstain',problems:[why],checked_passage_ids:[]};\n  base.trace=[...(base.trace||[]),'validation_failed'];\n  return base;\n}\n\nconst base=clone($('Choose Response Mode').first().json.state);\ntry {\n  const envelope=oneTool($input.first().json,'Response_Generator_API');\n  const result=envelope.state??envelope;\n  if (!sameIdentity(result,base)||!sameEvidence(result,base)) throw new Error('generator_identity_or_evidence_changed');\n  if (result.status==='tool_error'||(result.errors||[]).length) throw new Error('generator_api_failed');\n  if (typeof result.candidate_answer!=='string'||!result.candidate_answer.trim()||result.candidate_answer.length>20000) throw new Error('generator_candidate_invalid');\n  base.native_trace={...(base.native_trace||{}),generation_tool_calls:['Response_Generator_API']};\n  base.candidate_answer=result.candidate_answer;base.trace.push('native_generation_verified');\n  return [{json:{state:base,stage:'answer'}}];\n} catch(error) {throw error;}\n"
+      },
+      "id": "763a1415-1588-40e5-b06f-ae0b8f9150e2",
+      "name": "Prepare Answer Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13888,
+        3600
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/tools/evidence-check",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({state:Object.fromEntries(Object.entries($json.state).filter(entry => entry[0] !== 'native_trace')),stage:'answer'}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "3591e2aa-7d96-4b0b-a12d-3c347e3908ce",
+      "name": "Answer_Evidence_Check_API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        14144,
+        3264
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Final deterministic answer-stage check. Unlike the evidence-stage tool, it checks the generated candidate, quotations, attribution and citations before release."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst clone = value => JSON.parse(JSON.stringify(value));\nfunction unpack(value) {\n  for (let depth=0; depth<10; depth++) {\n    if (typeof value === 'string') {\n      try { value=JSON.parse(value.trim().replace(/^```(?:json)?\\s*/i,'').replace(/```\\s*$/,'')); }\n      catch { return null; }\n    } else if (Array.isArray(value)) {\n      if (value.length!==1) return null;\n      value=value[0];\n    } else if (value && typeof value==='object') {\n      if (value.request_id || Array.isArray(value.intermediateSteps) || value.state) return value;\n      if (value.json!==undefined) value=value.json;\n      else if (value.body!==undefined) value=value.body;\n      else if (value.response!==undefined) value=value.response;\n      else if (value.output!==undefined) value=value.output;\n      else return value;\n    } else return null;\n  }\n  return null;\n}\nconst toolName = step => String(step?.action?.tool ?? step?.action?.name ?? '');\nfunction oneTool(output, expected) {\n  const steps=Array.isArray(output?.intermediateSteps)?output.intermediateSteps:[];\n  if (steps.length!==1 || toolName(steps[0])!==expected) throw new Error('missing_wrong_or_duplicate_native_call:'+expected);\n  const value=unpack(steps[0].observation);\n  if (!value || value.error) throw new Error('invalid_native_tool_observation:'+expected);\n  return value;\n}\nconst FILTER_KEYS=['split','patient_id','image_id','modality','has_report','has_structured_report','birads'];\nfunction sameIdentity(state, base) {\n  return state && typeof state==='object' && state.request_id===base.request_id &&\n    state.intent===base.intent && state.question===base.question && state.patient_id===base.patient_id &&\n    state.filters?.split==='train' && FILTER_KEYS.every(k=>(state.filters?.[k]??null)===(base.filters?.[k]??null));\n}\nconst reportFields=['passage_id','patient_id','source','split','text'];\nconst imageFields=['image_id','patient_id','source_image_reference','split'];\nconst validRows=(rows,fields)=>Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&fields.every(k=>typeof row[k]==='string'));\nconst fingerprint=(rows,fields)=>JSON.stringify((rows||[]).map(row=>fields.map(k=>row?.[k]??null)));\nfunction sameEvidence(state,base) {\n  return fingerprint(state.reports,reportFields)===fingerprint(base.reports,reportFields) &&\n    fingerprint(state.images,imageFields.concat(['modality']))===fingerprint(base.images,imageFields.concat(['modality'])) &&\n    fingerprint(state.generation_evidence,reportFields)===fingerprint(base.generation_evidence,reportFields);\n}\nfunction failState(base,why) {\n  base.status='tool_error'; base.answer=null; base.candidate_answer=''; base.citations=[];\n  base.errors=[...(Array.isArray(base.errors)?base.errors:[]),why];\n  base.checker={decision:'abstain',problems:[why],checked_passage_ids:[]};\n  base.trace=[...(base.trace||[]),'validation_failed'];\n  return base;\n}\n\nconst base=clone($('Prepare Answer Check').first().json.state);\ntry {\n  if (base.errors.length) throw new Error('candidate_already_invalid');\n  const envelope=unpack($input.first().json);const result=envelope?.state??envelope;\n  if (!sameIdentity(result,base)||!sameEvidence(result,base)) throw new Error('answer_checker_identity_or_evidence_changed');\n  if (!['accept','abstain'].includes(result.checker?.decision)) throw new Error('answer_checker_decision_invalid');\n  if (result.checker.decision==='accept') {\n    if (result.candidate_answer!==base.candidate_answer) throw new Error('answer_checker_candidate_changed');\n    const ids=new Set(base.generation_evidence.map(r=>r.passage_id));\n    const citations=result.citations;const checked=result.checker.checked_passage_ids;\n    if (typeof result.answer!=='string'||!result.answer.trim()||!Array.isArray(citations)||!citations.length||new Set(citations).size!==citations.length||citations.some(id=>typeof id!=='string'||!ids.has(id))) throw new Error('accepted_answer_citations_invalid');\n    if (!Array.isArray(checked)||new Set(checked).size!==checked.length||checked.some(id=>!ids.has(id))||citations.some(id=>!checked.includes(id))) throw new Error('accepted_citations_not_checked');\n    if ((result.errors||[]).length) throw new Error('accepted_answer_contains_errors');\n    base.answer=result.answer;base.citations=citations;\n  } else {\n    if (result.answer||(result.citations||[]).length) throw new Error('abstention_contains_answer');\n    base.answer=null;base.citations=[];\n  }\n  base.checker=result.checker;base.status=result.status??base.status;base.trace.push('final_answer_gate_verified');\n  return [{json:{state:base}}];\n} catch(error) {failState(base,error.message);return [{json:{state:base}}];}\n"
+      },
+      "id": "aadbb73d-9eaf-4765-8e6d-0b77f030daeb",
+      "name": "Parse Answer Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        14368,
+        3264
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet base=null;\nfor (const name of ['Prepare Answer Check','Choose Response Mode','Validate Native Tool Result','Normalize BCMID Request']) {\n  try { if ($(name).isExecuted && $(name).first().json.state) {base=$(name).first().json.state;break;} } catch {}\n}\nif (!base) throw new Error('trusted_request_state_unavailable');\nconst state=JSON.parse(JSON.stringify(base));\nstate.status='tool_error';state.answer=null;state.candidate_answer='';state.citations=[];\nstate.errors=[...(state.errors||[]),'node_or_transport_failure'];\nstate.checker={decision:'abstain',problems:['node_or_transport_failure'],checked_passage_ids:[]};\nstate.trace=[...(state.trace||[]),'safe_failure'];return [{json:{state}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        14112,
+        3024
+      ],
+      "id": "7f381a78-a2f1-4bf1-8d99-e4d00112a102",
+      "name": "Safe API Failure"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s=$input.first().json.state;\nlet status='abstained';\nif (s.errors?.length) status=s.status==='invalid_request'?'invalid_request':'tool_error';\nelse if (s.intent==='out_of_scope_or_insufficient') status='out_of_scope';\nelse if (s.intent==='metadata_lookup') status=s.metadata?.length?'ok':'not_found';\nelse if (s.checker?.decision==='accept' && s.answer && s.citations?.length) status='answered';\nelse if (s.checker?.decision==='sufficient' && (s.retrieve_only || !s.needs_generation)) status='retrieved';\nelse status='abstained';\nconst accepted=status==='answered';\n// Native calls are recorded by the validators in state. Do not look up other nodes here.\nconst recorded=s.native_trace && typeof s.native_trace==='object' ? s.native_trace : {};\nconst names=value=>Array.isArray(value)?value.filter(x=>typeof x==='string'&&x.length<100).slice(0,4):[];\nconst native_trace={\n  orchestrator_tool_calls:names(recorded.orchestrator_tool_calls),\n  specialist_tool_calls:names(recorded.specialist_tool_calls),\n  api_states_valid:recorded.api_states_valid===true,\n  evidence_tool_calls:names(recorded.evidence_tool_calls),\n  generation_tool_calls:names(recorded.generation_tool_calls)\n};\nreturn [{json:{native_trace,\n request_id:s.request_id,intent:s.intent,status,query_patient_id:s.patient_id,\n answer:accepted?s.answer:null,citations:accepted?s.citations:[],\n sources:(s.registry||[]).map(r=>({kind:r.kind,id:r.id,patient_id:r.patient_id,source:r.source,split:r.split,modality:r.modality??null,rank:r.rank,similarity:r.similarity??null})),\n // Return retrieved passages to the client; persistence settings apply separately.\n report_passages:(s.reports||[]).map(r=>({passage_id:r.passage_id,patient_id:r.patient_id,source:r.source,split:r.split,text:r.text,modality:r.modality??null,rank:r.rank,similarity:r.similarity??null})),\n similar_images:(s.images||[]).map(i=>({image_id:i.image_id,patient_id:i.patient_id,source_image_reference:i.source_image_reference,split:i.split,modality:i.modality,rank:i.rank,similarity:i.similarity,association_level:i.association_level,association_warning:i.association_warning})),\n metadata:s.metadata||[],tools_called:s.tools_called||[],retry_count:s.retry_count||0,\n checker:s.checker||{decision:'abstain',problems:['missing_checker_state'],checked_passage_ids:[]},\n generation_passage_ids:(s.generation_evidence||[]).map(r=>r.passage_id),limitations:[...new Set(s.limitations||[])],errors:s.errors||[],trace:s.trace||[]\n}}];"
+      },
+      "id": "509ff4db-5fb7-4823-9159-e017c029565f",
+      "name": "Finalize Safe Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        14544,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "23eb6746-c58b-4c30-8759-5ff79c2db8ba",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        14768,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "For image_and_report_question only: retrieve report passages AND similar training images with one combined workflow tool.",
+        "text": "={{ $('Normalize BCMID Request').first().json.state.question || 'Run the validated request.' }}",
+        "options": {
+          "systemMessage": "You are the BCMID Multimodal Retrieval Agent. Make ONE native call to Multimodal_Search_Tool. The tool uses trusted workflow state. Do not write a tool call as text, draft an answer, change IDs, or invent evidence. Do not interpret image pixels. After tool execution a short completion marker is enough.",
+          "maxIterations": 1,
+          "returnIntermediateSteps": true,
+          "passthroughBinaryImages": false
+        }
+      },
+      "name": "Multimodal Retrieval Agent",
+      "id": "3d75c078-76a4-4ce4-b776-2bf0ac7dd8e1",
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "position": [
+        12320,
+        3616
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Runs BOTH fixed report and image FastAPI jobs and collects their evidence. Call once. Input is an unused completion string; request fields and image come from trusted workflow state.",
+        "source": "parameter",
+        "workflowJson": "={{ \"{\\\"name\\\":\\\"BCMID · Fixed Multimodal API Sequence\\\",\\\"nodes\\\":[{\\\"name\\\":\\\"Tool Input\\\",\\\"id\\\":\\\"4177b401-eb83-4144-8566-45386e03a2c0\\\",\\\"type\\\":\\\"n8n-nodes-base.executeWorkflowTrigger\\\",\\\"typeVersion\\\":1.1,\\\"parameters\\\":{\\\"inputSource\\\":\\\"passthrough\\\"},\\\"position\\\":[0,0]},{\\\"name\\\":\\\"Trusted Multimodal Request\\\",\\\"id\\\":\\\"645df43f-a8b3-47d6-b0f0-fab9d7f8b8bf\\\",\\\"type\\\":\\\"n8n-nodes-base.set\\\",\\\"typeVersion\\\":3.4,\\\"parameters\\\":{\\\"mode\\\":\\\"raw\\\",\\\"jsonOutput\\\":\\\"__TRUSTED_REQUEST__\\\",\\\"options\\\":{}},\\\"position\\\":[240,0]},{\\\"name\\\":\\\"Report Jobs API\\\",\\\"id\\\":\\\"daea6dd1-3d58-4d53-9bf5-6d3975a7381a\\\",\\\"type\\\":\\\"n8n-nodes-base.httpRequest\\\",\\\"typeVersion\\\":4.2,\\\"parameters\\\":{\\\"method\\\":\\\"POST\\\",\\\"url\\\":\\\"http://127.0.0.1:8000/tools/report-jobs\\\",\\\"sendBody\\\":true,\\\"specifyBody\\\":\\\"json\\\",\\\"jsonBody\\\":\\\"={{ JSON.stringify({state:$('Trusted Multimodal Request').first().json.state,top_k:5}) }}\\\",\\\"options\\\":{\\\"timeout\\\":60000}},\\\"position\\\":[480,0]},{\\\"name\\\":\\\"Image Jobs API\\\",\\\"id\\\":\\\"952211c8-8f1a-4ffb-9082-0c7283a42003\\\",\\\"type\\\":\\\"n8n-nodes-base.httpRequest\\\",\\\"typeVersion\\\":4.2,\\\"parameters\\\":{\\\"method\\\":\\\"POST\\\",\\\"url\\\":\\\"http://127.0.0.1:8000/tools/image-jobs\\\",\\\"sendBody\\\":true,\\\"specifyBody\\\":\\\"json\\\",\\\"jsonBody\\\":\\\"={{ JSON.stringify({state:$('Trusted Multimodal Request').first().json.state,image_base64:$('Trusted Multimodal Request').first().json.image_base64,top_k:5}) }}\\\",\\\"options\\\":{\\\"timeout\\\":90000}},\\\"position\\\":[720,0]},{\\\"name\\\":\\\"Validate Job Pair\\\",\\\"id\\\":\\\"dd4571d0-98dc-4bd3-8486-82a1f44f3293\\\",\\\"type\\\":\\\"n8n-nodes-base.code\\\",\\\"typeVersion\\\":2,\\\"parameters\\\":{\\\"jsCode\\\":\\\"\\\\nconst clone = value => JSON.parse(JSON.stringify(value));\\\\nfunction unpack(value) {\\\\n  for (let depth=0; depth<10; depth++) {\\\\n    if (typeof value === 'string') {\\\\n      try { value=JSON.parse(value.trim().replace(/^```(?:json)?\\\\\\\\s*/i,'').replace(/```\\\\\\\\s*$/,'')); }\\\\n      catch { return null; }\\\\n    } else if (Array.isArray(value)) {\\\\n      if (value.length!==1) return null;\\\\n      value=value[0];\\\\n    } else if (value && typeof value==='object') {\\\\n      if (value.request_id || Array.isArray(value.intermediateSteps) || value.state) return value;\\\\n      if (value.json!==undefined) value=value.json;\\\\n      else if (value.body!==undefined) value=value.body;\\\\n      else if (value.response!==undefined) value=value.response;\\\\n      else if (value.output!==undefined) value=value.output;\\\\n      else return value;\\\\n    } else return null;\\\\n  }\\\\n  return null;\\\\n}\\\\nconst toolName = step => String(step?.action?.tool ?? step?.action?.name ?? '');\\\\nfunction oneTool(output, expected) {\\\\n  const steps=Array.isArray(output?.intermediateSteps)?output.intermediateSteps:[];\\\\n  if (steps.length!==1 || toolName(steps[0])!==expected) throw new Error('missing_wrong_or_duplicate_native_call:'+expected);\\\\n  const value=unpack(steps[0].observation);\\\\n  if (!value || value.error) throw new Error('invalid_native_tool_observation:'+expected);\\\\n  return value;\\\\n}\\\\nconst FILTER_KEYS=['split','patient_id','image_id','modality','has_report','has_structured_report','birads'];\\\\nfunction sameIdentity(state, base) {\\\\n  return state && typeof state==='object' && state.request_id===base.request_id &&\\\\n    state.intent===base.intent && state.question===base.question && state.patient_id===base.patient_id &&\\\\n    state.filters?.split==='train' && FILTER_KEYS.every(k=>(state.filters?.[k]??null)===(base.filters?.[k]??null));\\\\n}\\\\nconst reportFields=['passage_id','patient_id','source','split','text'];\\\\nconst imageFields=['image_id','patient_id','source_image_reference','split'];\\\\nconst validRows=(rows,fields)=>Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&fields.every(k=>typeof row[k]==='string'));\\\\nconst fingerprint=(rows,fields)=>JSON.stringify((rows||[]).map(row=>fields.map(k=>row?.[k]??null)));\\\\nfunction sameEvidence(state,base) {\\\\n  return fingerprint(state.reports,reportFields)===fingerprint(base.reports,reportFields) &&\\\\n    fingerprint(state.images,imageFields.concat(['modality']))===fingerprint(base.images,imageFields.concat(['modality'])) &&\\\\n    fingerprint(state.generation_evidence,reportFields)===fingerprint(base.generation_evidence,reportFields);\\\\n}\\\\nfunction failState(base,why) {\\\\n  base.status='tool_error'; base.answer=null; base.candidate_answer=''; base.citations=[];\\\\n  base.errors=[...(Array.isArray(base.errors)?base.errors:[]),why];\\\\n  base.checker={decision:'abstain',problems:[why],checked_passage_ids:[]};\\\\n  base.trace=[...(base.trace||[]),'validation_failed'];\\\\n  return base;\\\\n}\\\\n\\\\nconst base=clone($('Trusted Multimodal Request').first().json.state);\\\\nconst receipts=[$('Report Jobs API').first().json,$('Image Jobs API').first().json].map(r=>r.body??r);\\\\nconst byKind={};\\\\nfor (const receipt of receipts) {\\\\n  if (!receipt || !['report','image'].includes(receipt.kind) || byKind[receipt.kind] ||\\\\n      typeof receipt.job_id!=='string' || !receipt.job_id || !sameIdentity(receipt.state,base) ||\\\\n      receipt.state.status==='tool_error' || (receipt.state.errors||[]).length)\\\\n    throw new Error('multimodal_job_receipt_invalid');\\\\n  byKind[receipt.kind]=receipt.job_id;\\\\n}\\\\nif (!byKind.report || !byKind.image || byKind.report===byKind.image) throw new Error('multimodal_job_pair_incomplete');\\\\nreturn [{json:{state:base,jobs:[byKind.report,byKind.image]}}];\\\\n\\\"},\\\"position\\\":[960,0]},{\\\"name\\\":\\\"Collect Jobs API\\\",\\\"id\\\":\\\"4eca8632-bc6d-4220-8461-56e939f441b5\\\",\\\"type\\\":\\\"n8n-nodes-base.httpRequest\\\",\\\"typeVersion\\\":4.2,\\\"parameters\\\":{\\\"method\\\":\\\"POST\\\",\\\"url\\\":\\\"http://127.0.0.1:8000/tools/jobs/collect\\\",\\\"sendBody\\\":true,\\\"specifyBody\\\":\\\"json\\\",\\\"jsonBody\\\":\\\"={{ JSON.stringify({state:$json.state,jobs:$json.jobs}) }}\\\",\\\"options\\\":{\\\"timeout\\\":150000}},\\\"position\\\":[1200,0]},{\\\"name\\\":\\\"Return Combined Evidence\\\",\\\"id\\\":\\\"7c659e2b-b196-4248-ba0e-e439e3310558\\\",\\\"type\\\":\\\"n8n-nodes-base.code\\\",\\\"typeVersion\\\":2,\\\"parameters\\\":{\\\"jsCode\\\":\\\"\\\\nconst clone = value => JSON.parse(JSON.stringify(value));\\\\nfunction unpack(value) {\\\\n  for (let depth=0; depth<10; depth++) {\\\\n    if (typeof value === 'string') {\\\\n      try { value=JSON.parse(value.trim().replace(/^```(?:json)?\\\\\\\\s*/i,'').replace(/```\\\\\\\\s*$/,'')); }\\\\n      catch { return null; }\\\\n    } else if (Array.isArray(value)) {\\\\n      if (value.length!==1) return null;\\\\n      value=value[0];\\\\n    } else if (value && typeof value==='object') {\\\\n      if (value.request_id || Array.isArray(value.intermediateSteps) || value.state) return value;\\\\n      if (value.json!==undefined) value=value.json;\\\\n      else if (value.body!==undefined) value=value.body;\\\\n      else if (value.response!==undefined) value=value.response;\\\\n      else if (value.output!==undefined) value=value.output;\\\\n      else return value;\\\\n    } else return null;\\\\n  }\\\\n  return null;\\\\n}\\\\nconst toolName = step => String(step?.action?.tool ?? step?.action?.name ?? '');\\\\nfunction oneTool(output, expected) {\\\\n  const steps=Array.isArray(output?.intermediateSteps)?output.intermediateSteps:[];\\\\n  if (steps.length!==1 || toolName(steps[0])!==expected) throw new Error('missing_wrong_or_duplicate_native_call:'+expected);\\\\n  const value=unpack(steps[0].observation);\\\\n  if (!value || value.error) throw new Error('invalid_native_tool_observation:'+expected);\\\\n  return value;\\\\n}\\\\nconst FILTER_KEYS=['split','patient_id','image_id','modality','has_report','has_structured_report','birads'];\\\\nfunction sameIdentity(state, base) {\\\\n  return state && typeof state==='object' && state.request_id===base.request_id &&\\\\n    state.intent===base.intent && state.question===base.question && state.patient_id===base.patient_id &&\\\\n    state.filters?.split==='train' && FILTER_KEYS.every(k=>(state.filters?.[k]??null)===(base.filters?.[k]??null));\\\\n}\\\\nconst reportFields=['passage_id','patient_id','source','split','text'];\\\\nconst imageFields=['image_id','patient_id','source_image_reference','split'];\\\\nconst validRows=(rows,fields)=>Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&fields.every(k=>typeof row[k]==='string'));\\\\nconst fingerprint=(rows,fields)=>JSON.stringify((rows||[]).map(row=>fields.map(k=>row?.[k]??null)));\\\\nfunction sameEvidence(state,base) {\\\\n  return fingerprint(state.reports,reportFields)===fingerprint(base.reports,reportFields) &&\\\\n    fingerprint(state.images,imageFields.concat(['modality']))===fingerprint(base.images,imageFields.concat(['modality'])) &&\\\\n    fingerprint(state.generation_evidence,reportFields)===fingerprint(base.generation_evidence,reportFields);\\\\n}\\\\nfunction failState(base,why) {\\\\n  base.status='tool_error'; base.answer=null; base.candidate_answer=''; base.citations=[];\\\\n  base.errors=[...(Array.isArray(base.errors)?base.errors:[]),why];\\\\n  base.checker={decision:'abstain',problems:[why],checked_passage_ids:[]};\\\\n  base.trace=[...(base.trace||[]),'validation_failed'];\\\\n  return base;\\\\n}\\\\n\\\\nconst envelope=unpack($input.first().json);\\\\nconst state=envelope?.state??envelope;\\\\nconst base=$('Trusted Multimodal Request').first().json.state;\\\\nif (!sameIdentity(state,base)) throw new Error('multimodal_collection_identity_mismatch');\\\\nreturn [{json:{state,job_pair_verified:true,job_kinds:['report','image']}}];\\\\n\\\"},\\\"position\\\":[1440,0]}],\\\"connections\\\":{\\\"Tool Input\\\":{\\\"main\\\":[[{\\\"node\\\":\\\"Trusted Multimodal Request\\\",\\\"type\\\":\\\"main\\\",\\\"index\\\":0}]]},\\\"Trusted Multimodal Request\\\":{\\\"main\\\":[[{\\\"node\\\":\\\"Report Jobs API\\\",\\\"type\\\":\\\"main\\\",\\\"index\\\":0}]]},\\\"Report Jobs API\\\":{\\\"main\\\":[[{\\\"node\\\":\\\"Image Jobs API\\\",\\\"type\\\":\\\"main\\\",\\\"index\\\":0}]]},\\\"Image Jobs API\\\":{\\\"main\\\":[[{\\\"node\\\":\\\"Validate Job Pair\\\",\\\"type\\\":\\\"main\\\",\\\"index\\\":0}]]},\\\"Validate Job Pair\\\":{\\\"main\\\":[[{\\\"node\\\":\\\"Collect Jobs API\\\",\\\"type\\\":\\\"main\\\",\\\"index\\\":0}]]},\\\"Collect Jobs API\\\":{\\\"main\\\":[[{\\\"node\\\":\\\"Return Combined Evidence\\\",\\\"type\\\":\\\"main\\\",\\\"index\\\":0}]]}},\\\"settings\\\":{\\\"executionOrder\\\":\\\"v1\\\",\\\"executionTimeout\\\":240,\\\"saveManualExecutions\\\":false,\\\"saveDataSuccessExecution\\\":\\\"none\\\",\\\"saveDataErrorExecution\\\":\\\"none\\\",\\\"saveExecutionProgress\\\":false},\\\"active\\\":false}\".replace(\"\\\"__TRUSTED_REQUEST__\\\"\",JSON.stringify(JSON.stringify({state:$('Normalize BCMID Request').first().json.state,image_base64:$('Normalize BCMID Request').first().json.image_base64}))) }}"
+      },
+      "name": "Multimodal_Search_Tool",
+      "id": "14f71cd9-d5ac-4a25-827d-9274c2b296f3",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        12480,
+        3856
+      ],
+      "notes": "Native Workflow Tool with seven embedded n8n nodes. Jobs are dispatched deterministically, not selected by the model. No separate workflow import or workflow ID is needed."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify({intent:$json.state.intent,report_count:$json.state.reports.length,image_count:$json.state.images.length}) }}",
+        "options": {
+          "systemMessage": "Make ONE native call to Evidence_Check_API now. That API, not your prose, decides evidence sufficiency and provenance. Its state and evidence are fixed by the workflow. Do not return JSON instructions or invent a checker decision. A completion marker after the call is enough.",
+          "maxIterations": 1,
+          "returnIntermediateSteps": true,
+          "passthroughBinaryImages": false,
+          "enableStreaming": false
+        }
+      },
+      "name": "Evidence Checker Agent",
+      "id": "25bdbdd2-6949-4ece-854b-4e50f66457d3",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        13184,
+        2832
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify({intent:$json.state.intent,question:$json.state.question,evidence_count:$json.state.generation_evidence.length}) }}",
+        "options": {
+          "systemMessage": "Make ONE native call to Response_Generator_API now. The API creates a candidate from fixed validated evidence, using exact extraction or its bounded summary generator. Do not separately draft, paraphrase, change evidence, or invent citations. The downstream answer checker must approve the API candidate. A completion marker after the call is enough.",
+          "maxIterations": 1,
+          "returnIntermediateSteps": true,
+          "passthroughBinaryImages": false,
+          "enableStreaming": false
+        }
+      },
+      "name": "Response Generator Agent",
+      "id": "29455d18-408b-4888-a824-7d554a62a163",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        13504,
+        3472
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Request & native retrieval\nFour specialist Agents; each owns one tool. Multimodal tool packages both jobs and collection. Memory is session-scoped.",
+        "height": 1740,
+        "width": 1490,
+        "color": 6
+      },
+      "name": "1 · Request & native retrieval",
+      "id": "9875c566-3d2f-4f53-aa88-608900457ab9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        11584,
+        2320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Check & generate\nEvidence Checker → Evidence_Check_API. Response Generator → Response_Generator_API. Both are native tool calls. Generation API owns extraction/summary.",
+        "height": 1740,
+        "width": 930,
+        "color": 5
+      },
+      "name": "2 · Check & generate",
+      "id": "5baad7be-7065-4939-8ca0-5136807e47e6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        13120,
+        2320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Final answer gate\nAnswer_Evidence_Check_API checks the generated candidate and citations. Failures abstain.\nInactive, runtime untested. Select local Ollama credential. Test executions save request/evidence data for review.",
+        "height": 1740,
+        "width": 860,
+        "color": 4
+      },
+      "name": "3 · Final answer gate",
+      "id": "d5e8c625-6e57-474f-860c-28bcc8fe1bcd",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        14096,
+        2320
+      ]
+    }
+  ],
+  "connections": {
+    "BCMID Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize BCMID Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize BCMID Request": {
+      "main": [
+        [
+          {
+            "node": "Request Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Ready?": {
+      "main": [
+        [
+          {
+            "node": "Orchestrator AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Safe Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orchestrator AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Validate Native Tool Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Native Tool Result": {
+      "main": [
+        [
+          {
+            "node": "Route After Native Tools",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route After Native Tools": {
+      "main": [
+        [
+          {
+            "node": "Evidence Checker Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Safe Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evidence Checker Agent": {
+      "main": [
+        [
+          {
+            "node": "Choose Response Mode",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose Response Mode": {
+      "main": [
+        [
+          {
+            "node": "Choose Response Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose Response Path": {
+      "main": [
+        [
+          {
+            "node": "Finalize Safe Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response Generator Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Generator Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Answer Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Answer Check": {
+      "main": [
+        [
+          {
+            "node": "Answer_Evidence_Check_API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer_Evidence_Check_API": {
+      "main": [
+        [
+          {
+            "node": "Parse Answer Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Answer Check": {
+      "main": [
+        [
+          {
+            "node": "Finalize Safe Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Safe API Failure": {
+      "main": [
+        [
+          {
+            "node": "Finalize Safe Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Safe Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report Retrieval Agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "Orchestrator AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report_Search_API": {
+      "ai_tool": [
+        [
+          {
+            "node": "Report Retrieval Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Retrieval Agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "Orchestrator AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image_Search_API": {
+      "ai_tool": [
+        [
+          {
+            "node": "Image Retrieval Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metadata Retrieval Agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "Orchestrator AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metadata_Lookup_API": {
+      "ai_tool": [
+        [
+          {
+            "node": "Metadata Retrieval Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Multimodal Retrieval Agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "Orchestrator AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Multimodal_Search_Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Multimodal Retrieval Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evidence_Check_API": {
+      "ai_tool": [
+        [
+          {
+            "node": "Evidence Checker Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response_Generator_API": {
+      "ai_tool": [
+        [
+          {
+            "node": "Response Generator Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory — Session Scoped": {
+      "ai_memory": [
+        [
+          {
+            "node": "Orchestrator AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Local Ollama · llama3.1:8b": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Orchestrator AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Report Retrieval Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Image Retrieval Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Metadata Retrieval Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Multimodal Retrieval Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Evidence Checker Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Response Generator Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  }
+}
