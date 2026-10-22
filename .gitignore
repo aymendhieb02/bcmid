@@ -31,3 +31,4 @@ projet/agentic_local/verification/
 !docs/BCMID_Technical_Report_Public.pdf
 !docs/xai/*.png
 !docs/fastapi-endpoints.png
+!docs/streamlit-interface.png

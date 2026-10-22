@@ -92,6 +92,13 @@ The notebook contains three perturbation-based investigations. The public figure
 
 All three analyses are exploratory and based on limited examples. They do not establish clinical accuracy or replace expert review.
 
+
+## Streamlit interface
+
+The screenshot below shows the BCMID Chat Assistant landing view, including the separate evidence workspace, local service indicators, and research-use boundaries.
+
+<p align="center"><img src="docs/streamlit-interface.png" alt="BCMID Streamlit evidence assistant interface" width="100%"></p>
+
 ## What the interface shows
 
 - **Report search:** a concise result message followed by the ranked report passages and their source references.
@@ -122,6 +129,7 @@ Similarity is displayed as a retrieval score. Review the source records directly
 | `projet/n8n/` | Portable workflow exports and Code-node logic |
 | `notebooks/` | Final Kaggle notebook, with outputs cleared for public sharing |
 | `docs/n8n-seven-agent-canvas.png` | Supplied n8n canvas snapshot |
+| `docs/streamlit-interface.png` | Streamlit Chat Assistant screenshot |
 | `docs/BCMID_Technical_Report_Public.pdf` | Final report with XAI example identifiers/images removed |
 | `docs/xai/` | Anonymized RAG and E5 explainability figures |
 | `docs/testing.md`, `docs/verification-status.md` | Local checks and verification boundaries |
