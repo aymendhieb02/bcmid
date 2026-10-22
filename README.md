@@ -39,6 +39,39 @@ The supplied n8n snapshot lays out three readable lanes: retrieval, evidence and
 
 The final `Answer_Evidence_Check_API` remains a separate answer and citation gate. A candidate answer is released only when the returned checks accept it; otherwise the workflow should abstain. The screenshot is a canvas view, not an execution trace, so native tool calls and end-to-end behavior must be confirmed from saved n8n executions.
 
+## Final notebook, report, and explainability
+
+The final project notebook and technical report are included for review:
+
+- [Final BCMID notebook](notebooks/BCMID_Final_Project.ipynb) — the 160-cell Kaggle workflow covering dataset checks, patient-level preparation, report extraction, E5/Chroma retrieval, image features, answer generation, evaluation, the agent design, and XAI experiments. This public copy has saved outputs removed and the small embedded test fixtures use synthetic patient labels; run it in the configured Kaggle environment with access to the BCMID dataset and model inputs.
+- [Final technical report — public copy](docs/BCMID_Technical_Report_Public.pdf) — the completed report. The XAI example source IDs and identifiable example ultrasound were removed from this copy; the original local report is unchanged. See [public-copy notes](docs/public-report-notes.md) for the specific redactions.
+
+### Project contributions
+
+- A patient-level data preparation path with duplicate checks and explicit train/test separation.
+- Structured report extraction and passage indexing with multilingual E5 embeddings and ChromaDB.
+- A separate visual-similarity path for finding training examples, with source metadata kept alongside each match.
+- Local answer generation bounded by retrieved report evidence, source citations, and an answer-checking step.
+- A visible n8n orchestration design that separates specialist retrieval and validation roles from FastAPI feature tools.
+
+These are project capabilities and design goals; the canvas screenshot does not by itself prove a live n8n execution or clinical performance.
+
+### Explainability experiments
+
+The notebook contains three perturbation-based investigations. The public figures below show the two text/RAG experiments with passage labels anonymized:
+
+**RAG passage ablation.** The experiment removes one retrieved passage at a time and compares the change in the generated response/citations with the retrieval similarity. In this single example, the highest similarity score does not correspond to the passage with the greatest ablation importance. Retrieval similarity is useful for ranking; it is not a measure of how much a source supports an answer.
+
+<p align="center"><img src="docs/xai/rag_retrieval_vs_ablation.png" alt="Anonymized comparison of report retrieval similarity and RAG ablation importance for three passages" width="90%"></p>
+
+**E5 word ablation.** The experiment removes one word from a French query and measures the resulting change in cosine similarity to one passage. Positive values mean similarity fell after removing that term; negative values mean it rose. This is a local sensitivity example, not a general linguistic or clinical explanation.
+
+<p align="center"><img src="docs/xai/e5_word_ablation.png" alt="Word-level perturbation effects on E5 similarity for one French query and passage" width="90%"></p>
+
+**Image-search XAI.** The notebook also explores ViT attention and image-region occlusion maps for a CLIP-based image search. The report’s example medical image is omitted from the public copy. These maps describe model sensitivity to image regions and artifacts; they do not explain a diagnosis, establish clinical validity, or mean the chat model interpreted the uploaded image.
+
+All three analyses are exploratory and based on limited examples. They do not establish clinical accuracy or replace expert review.
+
 ## What the interface shows
 
 - **Report search:** a concise result message followed by the ranked report passages and their source references.
@@ -67,8 +100,10 @@ Similarity is displayed as a retrieval score. Review the source records directly
 | `projet/agentic_local/evidence.py` | Evidence, source, attribution, and citation checks |
 | `projet/agentic_local/tools.py` | Report, image, and metadata retrieval implementations |
 | `projet/n8n/` | Portable workflow exports and Code-node logic |
-| `notebooks/` | Modular RAG and model experiments |
+| `notebooks/` | Final Kaggle notebook, with outputs cleared for public sharing |
 | `docs/n8n-seven-agent-canvas.png` | Supplied n8n canvas snapshot |
+| `docs/BCMID_Technical_Report_Public.pdf` | Final report with XAI example identifiers/images removed |
+| `docs/xai/` | Anonymized RAG and E5 explainability figures |
 | `docs/testing.md`, `docs/verification-status.md` | Local checks and verification boundaries |
 
 The retired `/agent/query` planner endpoint is hidden from the OpenAPI page; n8n owns orchestration and FastAPI exposes feature tools.

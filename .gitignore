@@ -28,3 +28,5 @@ projet/agentic_local/verification/
 
 # Public documentation artwork (project datasets remain ignored)
 !docs/n8n-seven-agent-canvas.png
+!docs/BCMID_Technical_Report_Public.pdf
+!docs/xai/*.png
