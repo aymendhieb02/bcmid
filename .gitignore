@@ -30,3 +30,4 @@ projet/agentic_local/verification/
 !docs/n8n-seven-agent-canvas.png
 !docs/BCMID_Technical_Report_Public.pdf
 !docs/xai/*.png
+!docs/fastapi-endpoints.png

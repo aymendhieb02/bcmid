@@ -39,6 +39,26 @@ The supplied n8n snapshot lays out three readable lanes: retrieval, evidence and
 
 The final `Answer_Evidence_Check_API` remains a separate answer and citation gate. A candidate answer is released only when the returned checks accept it; otherwise the workflow should abstain. The screenshot is a canvas view, not an execution trace, so native tool calls and end-to-end behavior must be confirmed from saved n8n executions.
 
+
+## FastAPI endpoint reference
+
+The screenshot shows the local FastAPI `/docs` page and the feature-tool routes exposed to n8n. It is an API reference snapshot, not proof that every endpoint was called in a workflow execution.
+
+<p align="center"><img src="docs/fastapi-endpoints.png" alt="FastAPI local API documentation listing the BCMID health and retrieval tool endpoints" width="95%"></p>
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Service health |
+| `POST` | `/tools/report-search` | Search report passages |
+| `POST` | `/tools/image-search` | Find visually similar training images |
+| `POST` | `/tools/image-upload` | Accept an image upload for local image search |
+| `POST` | `/tools/metadata` | Look up catalog metadata |
+| `POST` | `/tools/evidence-check` | Check evidence sufficiency and provenance |
+| `POST` | `/tools/generate` | Generate a response from supplied evidence |
+| `POST` | `/tools/report-jobs` | Start a report retrieval job |
+| `POST` | `/tools/image-jobs` | Start an image retrieval job |
+| `POST` | `/tools/jobs/collect` | Collect job results |
+
 ## Final notebook, report, and explainability
 
 The final project notebook and technical report are included for review:
