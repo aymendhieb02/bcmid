@@ -1,8 +1,13 @@
 # BCMID local test guide
 
-Use synthetic or de-identified inputs. Keep the session on the stable workflow. Do not publish or activate the agent/memory prototype for these checks.
+Use synthetic or de-identified inputs. The Streamlit pages use separate routes:
 
-## Start the stable path
+- **Chat assistant:** `N8N_WEBHOOK_URL`, configured by default to `/webhook/bcmid-seven-native-agents-5a4b5466e029`.
+- **Explore evidence:** `N8N_EVIDENCE_WEBHOOK_URL`, configured by default to `/webhook/bcmid-agent`.
+
+Confirm both values in the app’s local `.env` and check that the intended workflow is active in the existing n8n instance on port `5678`. A canvas screenshot or a successful HTTP status does not prove an end-to-end tool call.
+
+## Start the local services
 
 Run the API from the repository checkout:
 
@@ -11,45 +16,38 @@ Set-Location .\projet\agentic_local
 .\start_api.ps1
 ```
 
-Confirm `http://127.0.0.1:8000/health` and `http://127.0.0.1:8000/docs` respond. If model-backed features are enabled, check only the already installed Ollama tags with `ollama list`.
-
-In another PowerShell window:
-
-```powershell
-Set-Location .\projet\agentic_local
-.\start_n8n_demo.ps1
-```
-
-Open `http://127.0.0.1:5678/workflow/bcmidLocalToolsDemo` and confirm the existing stable workflow is published. Its production webhook is `http://127.0.0.1:5678/webhook/bcmid-agent`.
-
-In a separate window, from the repository root, start the interface:
+Check `http://127.0.0.1:8000/health`. Use the existing n8n service at `http://127.0.0.1:5678`; do not create another profile or instance for these checks. Start Streamlit from the repository root:
 
 ```powershell
 Set-Location <repository-root>
 .\start_ui.ps1
 ```
 
-Open `http://127.0.0.1:8501`. `.env` may override `N8N_WEBHOOK_URL`; keep it pointed at the stable local production webhook.
+Open `http://127.0.0.1:8501`. The app’s Connections panel shows the selected route for each page.
 
-## Synthetic route checks
+## Route checks
 
-Use the Streamlit forms to submit one request at a time. Inspect the status, `tools_called`, evidence sources, checker decision, and citations. The expected outputs below describe route behavior, not relevance or clinical validity.
+Submit one request at a time. Inspect the matching n8n execution and compare the request intent with the actual API node calls.
 
-| Check | Input | Expected route and result |
+| Scenario | Page and input | Verify |
 | --- | --- | --- |
-| Report retrieval | A synthetic question asking for report wording about follow-up; select source passages | Report retrieval and evidence check; return referenced passages with status `retrieved` when available |
-| Image-only search | A de-identified or synthetic reference image; no report question | Image retrieval only; return similar training images with source metadata |
-| Image plus report | A synthetic/de-identified image and a report question | Both retrieval lanes; show report passages separately from similar images |
-| Metadata match | An allowed filter such as modality or report availability | Metadata lookup only; return matching catalog rows or a no-match status |
-| Invalid filter | An unsupported filter value or forbidden split | Reject as `invalid_request`; no retrieval tool should run |
-| Out of scope | Ask for diagnosis or a recommendation about the uploaded image | Safe out-of-scope response; no diagnosis or clinical recommendation |
-| Checked quotation | Ask for an explicit follow-up or BI-RADS statement and enable checked quotation | Release source wording only when the answer checker accepts and returns citations; otherwise `abstained` with no answer or citations |
+| Report retrieval | Chat assistant: “Find report findings about annual follow up.” | Report search ran; displayed passages retain their source IDs, patient, and train split; accepted answers pass the final citation check. |
+| Image-only search | Chat assistant: attach a de-identified query image and ask for similar images | Image retrieval ran on training data, excludes the query patient, and shows retrieved thumbnails as examples from other cases. |
+| Image plus report | Chat assistant: attach a de-identified image and ask a report question | Both evidence types were returned and stay attributed to their own records; no image interpretation is claimed. |
+| Metadata | Chat assistant: request a catalog lookup for a supplied string ID | Metadata tool ran; leading zeros are preserved; every image/report source belongs to the requested patient. |
+| Source-only report search | Explore evidence: select Reports and “Return source passages” | Normal evidence workflow returned passages without a generated answer. |
+| Checked quotation | Explore evidence: select Reports and “Checked quotations” | The checker accepted exact supported wording and matching citations, or the app safely withheld the answer. |
+| Invalid or out-of-scope request | Either page: use an unsupported field or ask for diagnosis/recommendation | Safe rejection or abstention; no unsupported clinical claim is displayed. |
 
-For each request verify the source split is `train`, a supplied query patient is excluded from similar-case results, the source identifiers point to retrieved records, and any released quotation is exact and attributed to its cited source. Never treat an image neighbor’s metadata or report as a fact about the uploaded image.
+For image checks, inspect execution retention before upload. Saved executions must not retain raw image bytes, report text, or unnecessary identifiers. Do not delete executions manually from the database.
+
+## Session memory checks
+
+If the n8n canvas includes Simple Memory, check the execution data for the same opaque random session key on two turns, then use a new key and verify context isolation. The memory node should connect only to the Orchestrator. Clear conversation should rotate the key. Memory is conversational context, never evidence; each answer still needs retrieval and validation. Simple Memory is in-process and does not survive an n8n restart.
 
 ## Focused software checks
 
-Run from the repository root:
+Run from the repository root when validating code changes:
 
 ```powershell
 pytest test_n8n_client.py test_app.py -q
@@ -57,12 +55,4 @@ node projet\agentic_local\tests\test_workflow.cjs
 pytest projet\agentic_local\tests\test_core.py -q
 ```
 
-These are software checks. Mocked tests do not prove that a live service or workflow is available. Webhook retrieval checks do not prove that a checked answer will be accepted.
-
-## Agent and memory prototype
-
-The separate agent/memory workflow remains unpublished. Static export inspection alone is not a runtime pass. Before considering publication, run a synthetic report question, image-only search, image-plus-question, metadata lookup, unsupported request, and checked-answer path. Record each agent/tool call and final status without retaining raw patient text or image data.
-
-Then test memory with an opaque random `session_id`: use two turns with the same ID, a turn with a fresh ID, and a clear/reset that rotates the ID. Confirm the Orchestrator receives only its own session context, each question performs fresh evidence retrieval, and answer citations pass the checker. Restart n8n and inspect whether the in-process memory is lost. Do not describe Simple Memory as durable storage. Do not publish the workflow unless all required staged checks pass.
-
-See [verification status](verification-status.md) for which capabilities have evidence and which remain unverified.
+Mocked tests validate software behavior, not live n8n routing, retrieval relevance, or clinical accuracy. Record runtime claims only from the corresponding saved n8n execution.

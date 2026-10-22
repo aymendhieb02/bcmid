@@ -1,7 +1,7 @@
 import base64
 import pytest
 import requests
-from n8n_client import N8nError,ask_n8n,make_payload,parse_response
+from n8n_client import N8nError,N8nTimeout,ask_n8n,lookup_n8n_request,make_payload,parse_response
 
 def result(status='retrieved'):
  return dict(status=status,request_id='test',intent='report_question',answer=None,sources=[],report_passages=[],similar_images=[],metadata=[],citations=[],tools_called=[],limitations=[],errors=[],trace=[],checker={'decision':'sufficient','problems':[]},generation_passage_ids=[],retry_count=0)
@@ -11,6 +11,26 @@ def test_payload_current_contract():
  assert p['image_base64']==base64.b64encode(b'png').decode()
  assert p['patient_id']=='query' and p['retrieve_only'] is True
  assert not {'case_id','chat_history','image_mime'}&p.keys()
+
+def test_session_id_is_opaque_and_never_derived_from_patient_id():
+ p=make_payload('Follow up question',patient_id='PATIENT_1',session_id='a'*32)
+ assert p['session_id']=='a'*32 and p['patient_id']=='PATIENT_1'
+ with pytest.raises(N8nError):make_payload('Question',session_id='PATIENT_1')
+ with pytest.raises(N8nError):make_payload('Question',session_id='a'*129)
+
+def test_metadata_intent_extracts_bare_patient_id_without_casting():
+ from n8n_client import infer_chat_request_context
+ assert infer_chat_request_context('Metadata lookup 1193y16')==('metadata_lookup','1193y16')
+ assert infer_chat_request_context('Metadata for 0263y19')==('metadata_lookup','0263y19')
+ with pytest.raises(ValueError,match='one patient ID'):
+  infer_chat_request_context('Metadata lookup 1193y16 and 0583y19')
+
+def test_chat_request_can_send_explicit_intent_and_request_id():
+ p=make_payload('What does this report say?',filters={'split':'train'},image=b'image-bytes',session_id='c'*32,
+                intent='image_and_report_question',request_id='d'*32)
+ assert p['intent']=='image_and_report_question' and p['request_id']=='d'*32
+ assert p['image_base64']==base64.b64encode(b'image-bytes').decode()
+ assert p['filters']=={'split':'train'}
 
 @pytest.mark.parametrize('status',['retrieved','abstained','out_of_scope','not_found','ok','invalid_request','tool_error'])
 def test_non_answer_statuses_are_displayable_and_hide_candidate(status):
@@ -43,8 +63,59 @@ def test_connection_error():
  def post(*a,**k):raise requests.ConnectionError()
  with pytest.raises(N8nError,match='Cannot reach'):ask_n8n('http://localhost/webhook',{},post=post)
 
+def test_session_id_is_sent_in_header_for_legacy_webhook_compatibility():
+ class Response:
+  status_code=200
+  def json(self):return result()
+ calls={}
+ def post(url,**kwargs):calls.update(kwargs);return Response()
+ ask_n8n('http://localhost/webhook',{'question':'Question','session_id':'a'*32},post=post)
+ assert calls['headers']=={'X-BCMID-Session-ID':'a'*32}
+ assert calls['json']=={'question':'Question'}
+
+def test_request_id_is_sent_as_header_and_removed_from_body():
+ class Response:
+  status_code=200
+  def json(self):return result()
+ calls={}
+ def post(url,**kwargs):calls.update(kwargs);return Response()
+ ask_n8n('http://localhost/webhook',{'question':'Question','session_id':'a'*32,'request_id':'b'*32},post=post)
+ assert calls['headers']=={'X-BCMID-Session-ID':'a'*32,'X-BCMID-Request-ID':'b'*32}
+ assert 'request_id' not in calls['json'] and 'session_id' not in calls['json']
+
 def test_timeout_no_automatic_resubmit():
  calls=[]
  def post(*a,**k):calls.append(1);raise requests.Timeout()
  with pytest.raises(N8nError,match='timed out'):ask_n8n('http://localhost/webhook',{},post=post)
  assert len(calls)==1
+
+def test_timeout_keeps_the_same_request_id_for_recovery():
+ calls=[]
+ def post(*a,**k):calls.append(1);raise requests.Timeout()
+ with pytest.raises(N8nTimeout) as e:ask_n8n('http://localhost/webhook',{'request_id':'a'*32},post=post)
+ assert e.value.request_id=='a'*32 and len(calls)==1
+
+def test_readonly_request_lookup_returns_final_saved_result(tmp_path):
+ db=tmp_path/'n8n.sqlite'
+ import sqlite3
+ with sqlite3.connect(db) as c:
+  c.execute('create table execution_entity(id integer, status text, finished integer, mode text)')
+  c.execute('create table execution_data(executionId integer, data text)')
+  c.execute('insert into execution_entity values(1,"success",1,"webhook")')
+  c.execute('insert into execution_data values(1,?)',('serialized '+('a'*32),))
+ expected=result('retrieved')
+ def decode(_):return expected
+ found=lookup_n8n_request('a'*32,database_path=db,decoder=decode)
+ assert found=={'status':'completed','request_id':'a'*32,'result':expected}
+ with pytest.raises(sqlite3.OperationalError):
+  sqlite3.connect(db.resolve().as_uri()+'?mode=ro',uri=True).execute('delete from execution_entity')
+
+def test_readonly_request_lookup_reports_active_execution(tmp_path):
+ db=tmp_path/'n8n.sqlite'
+ import sqlite3
+ with sqlite3.connect(db) as c:
+  c.execute('create table execution_entity(id integer, status text, finished integer, mode text)')
+  c.execute('create table execution_data(executionId integer, data text)')
+  c.execute('insert into execution_entity values(1,"running",0,"webhook")')
+  c.execute('insert into execution_data values(1,?)',('serialized '+('b'*32),))
+ assert lookup_n8n_request('b'*32,database_path=db)=={'status':'processing','request_id':'b'*32}

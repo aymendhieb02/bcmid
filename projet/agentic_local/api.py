@@ -160,7 +160,7 @@ async def health():
     except Exception: state['ollama_model_available'] = False
     return {'status':'ok','orchestrator':'n8n','components':state}
 
-@app.post('/agent/query')
+@app.post('/agent/query', include_in_schema=False)
 def retired_planner():
     raise HTTPException(410, 'Orchestration moved to the n8n /webhook/bcmid-agent flow; call individual /tools endpoints here.')
 

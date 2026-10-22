@@ -25,3 +25,6 @@ projet/agentic_local/artifacts/
 projet/agentic_local/.runtime/
 projet/agentic_local/backups/
 projet/agentic_local/verification/
+
+# Public documentation artwork (project datasets remain ignored)
+!docs/n8n-seven-agent-canvas.png
